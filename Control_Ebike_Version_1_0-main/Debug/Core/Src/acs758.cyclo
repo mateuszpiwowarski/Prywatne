@@ -1,0 +1,6 @@
+../Core/Src/acs758.c:14:6:ACS7XX_Init_Default	1
+../Core/Src/acs758.c:25:6:ACS7XX_Calibrate	2
+../Core/Src/acs758.c:43:6:ACS7XX_InstantCurrent	3
+../Core/Src/acs758.c:75:6:ACS7XX_ResetCounters	1
+../Core/Src/acs758.c:84:6:Power_Calculate	2
+../Core/Src/acs758.c:110:6:UpdateBatteryConsumption	1

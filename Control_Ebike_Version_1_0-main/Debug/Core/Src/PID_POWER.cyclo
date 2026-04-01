@@ -1,0 +1,3 @@
+../Core/Src/PID_POWER.c:10:6:pid_init_power	1
+../Core/Src/PID_POWER.c:30:6:pid_reset_power	1
+../Core/Src/PID_POWER.c:36:5:pid_calculate_power	3

@@ -1,0 +1,15 @@
+../Core/Src/pidspeed.c:25:6:PID_Init_Speed	16	static
+../Core/Src/pidspeed.c:43:6:PID_Speed	48	static
+../Core/Src/pidspeed.c:62:6:PID2_Speed	56	static
+../Core/Src/pidspeed.c:68:9:PID_Compute_Speed	64	static
+../Core/Src/pidspeed.c:154:6:PID_SetMode_Speed	24	static
+../Core/Src/pidspeed.c:168:23:PID_GetMode_Speed	16	static
+../Core/Src/pidspeed.c:174:6:PID_SetOutputLimits_Speed	32	static
+../Core/Src/pidspeed.c:216:6:PID_SetTunings_Speed	40	static
+../Core/Src/pidspeed.c:220:6:PID_SetTunings2_Speed	48	static
+../Core/Src/pidspeed.c:259:15:PID_SetControllerDirection_Speed	16	static
+../Core/Src/pidspeed.c:274:21:PID_GetDirection_Speed	16	static
+../Core/Src/pidspeed.c:280:6:PID_SetSampleTime_Speed	32	static
+../Core/Src/pidspeed.c:300:8:PID_GetKp_Speed	16	static
+../Core/Src/pidspeed.c:304:8:PID_GetKi_Speed	16	static
+../Core/Src/pidspeed.c:308:8:PID_GetKd_Speed	16	static

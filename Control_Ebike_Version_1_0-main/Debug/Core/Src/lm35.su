@@ -1,0 +1,2 @@
+../Core/Src/lm35.c:11:6:LM35_Get_Value	16	static
+../Core/Src/lm35.c:20:6:LM35_Get_Temperature	40	static

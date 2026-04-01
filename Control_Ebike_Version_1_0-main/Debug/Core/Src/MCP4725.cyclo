@@ -1,0 +1,17 @@
+../Core/Src/MCP4725.c:40:9:MCP4725_init	1
+../Core/Src/MCP4725.c:59:9:MCP4725_isConnected	1
+../Core/Src/MCP4725.c:71:6:MCP4725_setReferenceVoltage	2
+../Core/Src/MCP4725.c:86:7:MCP4725_getReferenceVoltage	1
+../Core/Src/MCP4725.c:114:9:MCP4725_setValue	1
+../Core/Src/MCP4725.c:130:9:MCP4725_setVoltage	1
+../Core/Src/MCP4725.c:156:10:MCP4725_getValue	2
+../Core/Src/MCP4725.c:176:7:MCP4725_getVoltage	2
+../Core/Src/MCP4725.c:200:10:MCP4725_getStoredValue	2
+../Core/Src/MCP4725.c:220:7:MCP4725_getStoredVoltage	2
+../Core/Src/MCP4725.c:255:10:MCP4725_getPowerType	2
+../Core/Src/MCP4725.c:288:10:MCP4725_getStoredPowerType	2
+../Core/Src/MCP4725.c:314:6:MCP4725_reset	1
+../Core/Src/MCP4725.c:338:6:MCP4725_wakeUP	1
+../Core/Src/MCP4725.c:361:9:MCP4725_getEepromBusyFlag	2
+../Core/Src/MCP4725.c:403:9:MCP4725_writeComand	9
+../Core/Src/MCP4725.c:465:10:MCP4725_readRegister	6

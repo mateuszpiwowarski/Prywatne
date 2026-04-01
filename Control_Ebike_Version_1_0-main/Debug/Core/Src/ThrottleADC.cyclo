@@ -1,0 +1,6 @@
+../Core/Src/ThrottleADC.c:17:6:Throttle_Get_ADC_Value	1
+../Core/Src/ThrottleADC.c:26:6:Throttle_Get_Voltage	1
+../Core/Src/ThrottleADC.c:33:6:Throttle_Get_Average_Voltage	2
+../Core/Src/ThrottleADC.c:46:8:scale_value	1
+../Core/Src/ThrottleADC.c:67:6:PID_Init_Power	1
+../Core/Src/ThrottleADC.c:84:6:Throttle_Control_Power	7

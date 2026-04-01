@@ -1,0 +1,13 @@
+"Id";"Oznaczenie";"Footprint";"Liczba";"Oznaczenie";"Dostawca i numer artykułu";
+1;"U1";"Allegro_CB_PFF";1;"ACS758xCB-050B-PFF";;;
+2;"C2,C1";"C_0603_1608Metric_Pad1.08x0.95mm_HandSolder";2;"100nF";;;
+3;"J8";"HOLE";1;"SHD";;;
+4;"J7";"HOLE";1;"BAT-";;;
+5;"R2";"R_0603_1608Metric_Pad0.98x0.95mm_HandSolder";1;"1K";;;
+6;"J1";"XT60PWF";1;"XT60PW-F";;;
+7;"J3";"HOLE";1;"BAT+";;;
+8;"J5";"HOLE";1;"GND";;;
+9;"J2";"XT60PWM";1;"XT60PW-M";;;
+10;"J6";"HOLE";1;"OUT";;;
+11;"J4";"HOLE";1;"VCC";;;
+12;"R1";"R_0603_1608Metric_Pad0.98x0.95mm_HandSolder";1;"0";;;

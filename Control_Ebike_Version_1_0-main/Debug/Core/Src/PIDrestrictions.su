@@ -1,0 +1,4 @@
+../Core/Src/PIDrestrictions.c:26:6:setPowerPidParameters	16	static
+../Core/Src/PIDrestrictions.c:33:6:PowerControlLoop	32	static
+../Core/Src/PIDrestrictions.c:53:6:setSpeedPidParameters	16	static
+../Core/Src/PIDrestrictions.c:60:6:speedControlLoop	24	static

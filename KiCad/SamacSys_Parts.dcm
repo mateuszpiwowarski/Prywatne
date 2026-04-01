@@ -1,0 +1,93 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP NE555DR
+D Single Precision Timer
+K
+F http://www.ti.com/lit/ds/symlink/ne555.pdf
+$ENDCMP
+#
+$CMP 39-30-0140
+D Mini-Fit Jr. Header, Dual Row, Right-Angle, with Snap-in Plastic Peg PCB Lock, 14 Circuits
+K
+F https://www.molex.com/pdm_docs/sd/039300060_sd.pdf
+$ENDCMP
+#
+$CMP 2060-452_998-404
+D SMD PCB terminal block; push-button; 0.75 mm; Pin spacing 4 mm; 2-pole; Push-in CAGE CLAMP; in tape-and-reel packaging
+K
+F https://www.wago.com/2060-452/998-404
+$ENDCMP
+#
+$CMP 2060-453_998-404
+D SMD PCB terminal block; push-button; 0.75 mm; Pin spacing 4 mm; 3-pole; Push-in CAGE CLAMP; in tape-and-reel packaging
+K
+F https://www.wago.com/2060-453/998-404
+$ENDCMP
+#
+$CMP AZ850-12
+D AZ850 Series Microminiature Polarized 1 A DPDT 12 VDC PCB Mount Signal Relay
+K
+F https://www.azettler.com/pdfs/az850.pdf
+$ENDCMP
+#
+$CMP 2060-1452_998-404
+D THR PCB terminal block; push-button; 0.75 mm; Pin spacing 4 mm; 2-pole; Push-in CAGE CLAMP; in tape-and-reel packaging
+K
+F https://www.wago.com/2060-1452/998-404
+$ENDCMP
+#
+$CMP 2060-1453_998-404
+D THR PCB terminal block; push-button; 0.75 mm; Pin spacing 4 mm; 3-pole; Push-in CAGE CLAMP; in tape-and-reel packaging
+K
+F https://www.wago.com/2060-1453/998-404
+$ENDCMP
+#
+$CMP FTR-B3GA012Z
+D Low Signal Relays - PCB MINI RELAY 12VDC
+K
+F 
+$ENDCMP
+#
+$CMP FTR-B3GA4.5Z-B10
+D Signal Relay: 2 poles, 8 pin DIP, contact rating 1A; 4.5V coil voltage; gold overlay silver nickel contact; plastic sealed case; PCB SMT mount; contact form 2C, polarized coil, standard type, tape and reel packaging
+K
+F https://www.fcl-components.com/downloads/MICRO/fcai/relays/ftr-b3.pdf
+$ENDCMP
+#
+$CMP XT60PW-M
+D Connector: DC supply; socket; XT60; male; PIN: 2; on PCBs; THT; 30A
+K
+F https://www.tme.eu/Document/b13629717d44ae038681dba08d18c0b6/XT60PW-M.pdf
+$ENDCMP
+#
+$CMP XT60PW-F
+D Socket; DC supply; XT60; female; PIN: 2; on PCBs; THT; Colour: yellow
+K
+F https://www.tme.eu/Document/1191bc2fa3aee3c446e5a895fd8f7983/XT60PW-F.pdf
+$ENDCMP
+#
+$CMP STM32F411CEU6
+D 32-Bit MCU 512K Flash 100MHz UFQFPN48 STMicroelectronics STM32F411CEU6, 32bit ARM Cortex M4 MCU, 100MHz, 512 kB Flash, 48-Pin UFQFPN
+K
+F http://www.st.com/content/ccc/resource/technical/document/datasheet/b3/a5/46/3b/b4/e5/4c/85/DM00115249.pdf/files/DM00115249.pdf/jcr:content/translations/en.DM00115249.pdf
+$ENDCMP
+#
+$CMP LP2985A-33DBVT
+D 150mA Low-Noise Low-Dropout Regulator With Shutdown
+K
+F http://www.ti.com/lit/gpn/LP2985A
+$ENDCMP
+#
+$CMP LM5069MM-2_NOPB
+D Texas Instruments LM5069MM-2/NOPB, Hot Swap Controller, 9  80 V, 10-Pin, MSOP
+K
+F http://www.ti.com/lit/gpn/lm5069
+$ENDCMP
+#
+$CMP LM5008AMM_NOPB
+D Texas Instruments LM5008AMM/NOPB, Step Down DC-DC Converter, 350mA, Adjustable, 2.5  75 V, 8-Pin MSOP
+K
+F http://www.ti.com/lit/gpn/lm5008a
+$ENDCMP
+#
+#End Doc Library

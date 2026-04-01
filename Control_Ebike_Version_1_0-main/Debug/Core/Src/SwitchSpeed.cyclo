@@ -1,0 +1,2 @@
+../Core/Src/SwitchSpeed.c:10:6:HAL_TIM_IC_START_Switch	1
+../Core/Src/SwitchSpeed.c:28:6:HAL_TIM_IC_CaptureCallback_TIM9	7

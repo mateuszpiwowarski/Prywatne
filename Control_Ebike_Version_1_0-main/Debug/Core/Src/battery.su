@@ -1,0 +1,2 @@
+../Core/Src/battery.c:15:6:Battery_Get_ADC_Value	16	static
+../Core/Src/battery.c:24:6:Battery_Get_Voltage	40	static

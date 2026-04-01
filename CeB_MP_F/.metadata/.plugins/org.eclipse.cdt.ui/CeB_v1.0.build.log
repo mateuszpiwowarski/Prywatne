@@ -1,0 +1,10 @@
+09:29:34 **** Incremental Build of configuration Debug for project CeB_v1.0 ****
+make -j16 all 
+arm-none-eabi-size  CeB_v1.0.elf 
+   text	   data	    bss	    dec	    hex	filename
+  36080	    472	   3096	  39648	   9ae0	CeB_v1.0.elf
+Finished building: default.size.stdout
+ 
+
+09:29:35 Build Finished. 0 errors, 0 warnings. (took 1s.99ms)
+

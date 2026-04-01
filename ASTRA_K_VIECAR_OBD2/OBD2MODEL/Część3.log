@@ -1,0 +1,28 @@
+Translacja Solid Edge do STL
+Data: niedziela,luty 15,2026 08:57PM
+Plik Ÿród³owy:C:\Users\mateu\OneDrive\Dokumenty\ASTRA_K_VIECAR_OBD2\OBD2MODEL\Czêœæ3.par
+System Ÿród³owy: SOLID EDGE
+
+Sprzêt:
+Procesor: Intel(R) Xeon(R) CPU E5-2630 v2 @ 2.60GHz
+System operacyjny: Windows 10 Professional
+Zainstalowana pamiêæ: 15,91 GB
+
+Informacje o oprogramowaniu:
+Wersja Parasolid: 37.0.118
+Wersja PSBodyshop: 37.0.94
+Wersja adaptera STL: 15.0.142
+Wersja Solid Edge: 225.00.01.004 x64
+
+Opcje eksportu STL:
+Format pliku wynikowego:BINARY
+Eksport wyœwietlanych czêœci:Wy³.
+structureOption: Monolithic
+Eksport jednostek:Millimeter
+Eksport wartoœci tolerancji:0,001000
+Eksport typu tolerancji:Fine
+Eksport wartoœci k¹ta p³aszczyzny:0,523599
+
+Postêp translacji:
+Proces translacji zosta³ zakoñczony
+Czas wymagany do translacji:00 : 00 : 00

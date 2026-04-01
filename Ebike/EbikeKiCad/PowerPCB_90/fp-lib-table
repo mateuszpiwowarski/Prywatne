@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "PowerPCB_90")(type "KiCad")(uri "$(KIPRJMOD)/PowerPCB_90.pretty")(options "")(descr ""))
+)

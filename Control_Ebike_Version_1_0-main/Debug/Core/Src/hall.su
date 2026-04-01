@@ -1,0 +1,2 @@
+../Core/Src/hall.c:22:6:HAL_TIM_IC_START	8	static
+../Core/Src/hall.c:40:6:HAL_TIM_IC_CaptureCallback_TIM2	40	static

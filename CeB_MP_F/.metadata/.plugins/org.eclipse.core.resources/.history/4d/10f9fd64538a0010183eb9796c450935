@@ -1,0 +1,857 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2024 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+#include "adc.h"
+#include "i2c.h"
+#include "iwdg.h"
+#include "tim.h"
+#include "usart.h"
+#include "gpio.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include "acs758.h"
+#include "Battery.h"
+#include "buttons.h"
+//#include "ds18B20.h"
+#include "ssd1306_conf.h"
+#include "ssd1306_tests.h"
+#include "ssd1306_fonts.h"
+#include "ssd1306.h"
+#include "gps_neo6.h"
+#include "hall.h"
+//#include "MCP4725.h"
+//#include "onewire.h"
+
+#include "ThrottleADC.h"
+#include "page.h"
+//#include "lm35.h"
+#include "ntc10k.h"
+#include "ntc10kS.h"
+#include "SwitchSpeed.h"
+//#include "pidspeed.h"
+#include "pid.h"
+
+#include "stdint.h"
+#include "stdio.h"
+#include <math.h>
+#include <string.h>
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+#ifndef SSD1306_WIDTH
+#define SSD1306_WIDTH 128
+#endif
+#ifndef SSD1306_HEIGHT
+#define SSD1306_HEIGHT 64
+#endif
+
+/* mapowanie napięcia na % baterii – dostosuj do swojego pakietu */
+#define BAT_EMPTY_V  42.0f
+#define BAT_FULL_V   54.6f
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+/* USER CODE BEGIN PV */
+
+///// NTC10K ////
+uint16_t ADC_Raw;
+float Ntc_Tmp;
+float Avg_Tmp;
+
+uint8_t Sch_100ms = 255;
+
+///// NTC10K S ////
+uint16_t ADC_Raw_S;
+float Ntc_Tmp_S;
+float Avg_Tmp_S;
+
+uint8_t Sch_100ms_S = 255;
+
+//// POWER  /////
+float power;
+
+double batteryCurrentCapacityAh;
+double batteryCurrentCapacityWh;
+
+/// ACS758 /////
+double current;
+float voltage;
+uint32_t value;
+
+//// V_BAT /////
+uint32_t bat_adc_val;
+float batteryVoltage;
+
+/// NEO6GPS  /////
+NEO6_State GpsState;   /* <— jedna deklaracja (wcześniej były dwie) */
+
+/// BUTTON ////
+BUTTON_T BUTTON1_Pin;
+BUTTON_T BUTTON2_Pin;
+BUTTON_T BUTTON3_Pin;
+
+/// SwitchSpeed/Hall /////
+extern volatile uint32_t lastPulseCheckTime_Switch;
+extern volatile float Switchspeed;
+extern volatile float Switchrotational_speed;
+extern volatile uint32_t lastImpulseTime_Switch;
+
+extern volatile float speed;
+extern volatile float rotational_speed;
+extern volatile uint32_t pulseCounter;
+extern volatile uint32_t lastImpulseTime;
+extern volatile uint32_t lastPulseCheckTime;
+extern volatile float totalDistance;
+
+//// SSD1306 PAGE ////
+uint8_t pageIndex = 0;    // aktywna strona
+uint8_t supportLevel = 2; // poziom PAS
+
+///// PWM_PID /////
+double scaledThrottlePower;
+double powerPercentage;
+double averageVoltagePercentage;
+double throttlePower;
+
+double scaledThrottleSpeed;
+double speedPercentage;
+double throttleSpeed;
+
+uint8_t currentFunction = 0;
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+static void MX_NVIC_Init(void);
+/* USER CODE BEGIN PFP */
+void renderPage1(char* buffer);
+void renderPage2(char* buffer);
+void renderPage3(char* buffer);
+void renderPage4(char* buffer);
+void renderPage5(char* buffer);
+void renderPage6(char* buffer);
+
+/* === UI helpers + Main Screen === */
+static inline int TW(const char* s, FontDef font);
+static void DrawCentered(const char* s, int y, FontDef font);
+static void DrawBattery(int x, int y, int w, int h, uint8_t pct);
+static uint8_t BatteryPctFromV(float v);
+static void DrawLabelValue(int x, int y, const char* label, const char* value);
+void renderMainScreen(void);
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+  /* USER CODE BEGIN 1 */
+//  PID_TypeDef PID;
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+//  PID_Init(&PID);
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_ADC1_Init();
+  MX_I2C1_Init();
+  MX_I2C2_Init();
+  MX_TIM1_Init();
+  MX_USART1_UART_Init();
+  MX_TIM2_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
+  MX_TIM9_Init();
+  MX_IWDG_Init();
+
+  /* Initialize interrupts */
+  MX_NVIC_Init();
+  /* USER CODE BEGIN 2 */
+
+  ///////////////////////////////// NTC10K / NTC10KS timers
+  HAL_TIM_Base_Start_IT(&htim4);
+  HAL_TIM_Base_Start_IT(&htim4);
+
+  /////////////////////////////// NEO6GPS
+  NEO6_Init(&GpsState, &huart1);
+
+  ///////////////////////////// ACS758
+  ACS7XX Serch;
+  ACS7XX_ResetCounters(&Serch);
+  ACS7XX_Calibrate(&Serch);
+  ACS7XX_Init_Default(&Serch);
+
+  ///////////////////////////// HALL SPEED
+  HAL_TIM_IC_START();
+
+  ///////////////////////////// SSD1306
+  ssd1306_Init();
+
+  ///////////////////////////// BUTTONS
+  Button_Init(&BUTTON1_Pin, BUTTON1_Pin_GPIO_Port, BUTTON1_Pin_Pin, 30, 3000, 700);
+  Button_Init(&BUTTON2_Pin, BUTTON2_Pin_GPIO_Port, BUTTON2_Pin_Pin, 30, 3000, 700);
+  Button_Init(&BUTTON3_Pin, BUTTON3_Pin_GPIO_Port, BUTTON3_Pin_Pin, 30, 3000, 700);
+
+  ///////////////////////////// PID init (power control)
+  PID_Init_Power(&Serch, &hadc1, &powerPercentage, &averageVoltagePercentage);
+
+  ///////////////////////////// Delays
+  uint32_t GPS_delay = 0;
+  uint32_t mAhWh_delay = 0;
+  uint32_t NTC10K_delay = 0;
+  uint32_t NTC10KS_delay = 0;
+  uint32_t POWER_delay = 0;
+  uint32_t ACS758_delay = 0;
+  uint32_t V_BAT_delay = 0;
+  uint32_t SSD1306_delay = 0;
+  uint32_t BUTTON_delay = 0;
+
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    if(HAL_IWDG_Refresh(&hiwdg) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    /* NEO6GPS */
+    if((HAL_GetTick() - GPS_delay) > 100)
+    {
+      NEO6_Task(&GpsState);
+      NEO6_IsFix(&GpsState);
+      GPS_delay = HAL_GetTick();
+    }
+
+    /* mAh / Wh */
+    if((HAL_GetTick() - mAhWh_delay) > 1000)
+    {
+      UpdateBatteryConsumption(&Serch, &hadc1, &batteryCurrentCapacityAh, &batteryCurrentCapacityWh);
+      mAhWh_delay = HAL_GetTick();
+    }
+
+    /* PWM Throttle (Power) – wywołanie ciągłe */
+    Throttle_Control_Power(&Serch, &hadc1, &htim3, TIM_CHANNEL_2, &averageVoltagePercentage, &powerPercentage);
+
+    /* NTC10K */
+    if((HAL_GetTick() - NTC10K_delay) > 1000)
+    {
+      if(Sch_100ms)
+      {
+        NTC10K_ADC_Read(&ADC_Raw);
+        NTC10K_Get_Avg_Temp(&Avg_Tmp);
+      }
+      NTC10K_delay = HAL_GetTick();
+    }
+
+    /* NTC10KS */
+    if((HAL_GetTick() - NTC10KS_delay) > 1000)
+    {
+      if(Sch_100ms_S)
+      {
+        NTC10K_ADC_Read_S(&ADC_Raw_S);
+        NTC10K_Get_Avg_Temp_S(&Avg_Tmp_S);
+      }
+      NTC10KS_delay = HAL_GetTick();
+    }
+
+    /* Hall speed timeout */
+    if (HAL_GetTick() - lastImpulseTime >= TIMEOUT)
+    {
+      pulseCounter = 0;
+      speed = 0;
+      rotational_speed = 0;
+    }
+
+    /* Power calculation */
+    if((HAL_GetTick() - POWER_delay) > 500)
+    {
+      Power_Calculate(&Serch, &hadc1, &power);
+      POWER_delay = HAL_GetTick();
+    }
+
+    /* ACS758 */
+    if((HAL_GetTick() - ACS758_delay) > 500)
+    {
+      ACS7XX_InstantCurrent(&Serch, &current, &voltage, &value);
+      ACS758_delay = HAL_GetTick();
+    }
+
+    /* Battery voltage */
+    if((HAL_GetTick() - V_BAT_delay) > 1000)
+    {
+      HAL_ADC_Start(&hadc1);
+      HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+      Battery_Get_ADC_Value(&hadc1, &bat_adc_val);
+      Battery_Get_Voltage(&hadc1 , &batteryVoltage);
+      HAL_ADC_Stop(&hadc1);
+      V_BAT_delay = HAL_GetTick();
+    }
+
+    /* SSD1306 draw */
+    if((HAL_GetTick() - SSD1306_delay) > 100)
+    {
+      char displayBuffer[50];
+
+      ssd1306_Fill(Black);
+
+      switch (pageIndex)
+      {
+        case 0: // Ekran główny (nowy layout)
+          renderMainScreen();
+          break;
+
+        case 1: // Możesz też użyć głównego lub własnej strony
+          renderMainScreen();
+          break;
+
+        case 2:
+          renderPage3(displayBuffer);
+          break;
+
+        case 3:
+          renderPage4(displayBuffer);
+          break;
+
+        case 4:
+          renderPage5(displayBuffer);
+          break;
+
+        case 5:
+          renderPage6(displayBuffer);
+          break;
+
+        default:
+          pageIndex = 0;
+      }
+
+      SSD1306_delay = HAL_GetTick();
+    }
+
+    /* Buttons */
+    if((HAL_GetTick() - BUTTON_delay) > 100)
+    {
+      if (Button_IsPressed(&BUTTON1_Pin))
+      {
+        if (pageIndex >= 5) pageIndex = 0;
+        else pageIndex++;
+      }
+
+      if (Button_IsPressed(&BUTTON2_Pin))
+      {
+        if (supportLevel <= 4) supportLevel++;
+      }
+
+      if (Button_IsPressed(&BUTTON3_Pin))
+      {
+        if (supportLevel >= 1) supportLevel--;
+      }
+
+      BUTTON_delay = HAL_GetTick();
+    }
+
+    /* USER CODE END WHILE */
+    /* USER CODE BEGIN 3 */
+  }
+  /* USER CODE END 3 */
+}
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 100;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief NVIC Configuration.
+  * @retval None
+  */
+static void MX_NVIC_Init(void)
+{
+  /* TIM1_BRK_TIM9_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(TIM1_BRK_TIM9_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(TIM1_BRK_TIM9_IRQn);
+  /* TIM2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(TIM2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(TIM2_IRQn);
+}
+
+/* USER CODE BEGIN 4 */
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM2)
+    {
+        HAL_TIM_IC_CaptureCallback_TIM2(htim);
+    }
+    else if (htim->Instance == TIM9)
+    {
+        HAL_TIM_IC_CaptureCallback_TIM9(htim);
+    }
+}
+
+/* ======================== UI HELPERS + MAIN SCREEN ======================= */
+
+static inline int TW(const char* s, FontDef font) {
+    return (int)strlen(s) * (int)font.FontWidth;
+}
+
+static void DrawCentered(const char* s, int y, FontDef font) {
+    int x = (SSD1306_WIDTH - TW(s, font)) / 2;
+    if (x < 0) x = 0;
+    ssd1306_SetCursor(x, y);
+    ssd1306_WriteString(s, font, White);
+}
+
+static void DrawBattery(int x, int y, int w, int h, uint8_t pct) {
+    if (w < 8) w = 8;
+    if (h < 8) h = 8;
+    if (pct > 100) pct = 100;
+
+    /* ramka */
+    ssd1306_DrawRectangle(x, y, x + w - 3, y + h - 1, White);
+    /* bolec plusa po prawej */
+    ssd1306_Line(x + w - 2, y + h / 3, x + w - 2, y + (2 * h) / 3, White);
+
+    /* wypełnienie */
+    int inner_w = (w - 3) - 2;
+    int inner_h = (h - 1) - 2;
+    int fill_w  = (inner_w * pct) / 100;
+    if (fill_w > 0) {
+        ssd1306_FillRectangle(x + 2, y + 1, x + 2 + fill_w, y + 1 + inner_h, White);
+    }
+}
+
+static uint8_t BatteryPctFromV(float v) {
+    float pct = (v - BAT_EMPTY_V) * 100.0f / (BAT_FULL_V - BAT_EMPTY_V);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    return (uint8_t)pct;
+}
+
+static void DrawLabelValue(int x, int y, const char* label, const char* value) {
+    ssd1306_SetCursor(x, y);
+    ssd1306_WriteString(label, Font_6x8, White);
+    ssd1306_SetCursor(x, y + 8 + 2);
+    ssd1306_WriteString(value, Font_7x10, White);
+}
+
+/* główny ekran: PAS + bateria + separator + duża prędkość + km/h + dół PWR/VOLT/TRIP */
+void renderMainScreen(void)
+{
+    char buf[32];
+
+    /* górny pasek */
+    ssd1306_SetCursor(2, 1);
+    snprintf(buf, sizeof(buf), "PAS %u", supportLevel);
+    ssd1306_WriteString(buf, Font_6x8, White);
+
+    uint8_t bpct = BatteryPctFromV(batteryVoltage);
+    DrawBattery(SSD1306_WIDTH - 26, 0, 24, 10, bpct);
+
+    /* separator */
+    ssd1306_Line(0, 12, SSD1306_WIDTH - 1, 12, White);
+
+    /* duża prędkość */
+    snprintf(buf, sizeof(buf), "%.0f", speed);
+    /* jeśli masz Font_16x26 w swojej bibliotece, zmień tutaj na Font_16x26 */
+    DrawCentered(buf, 16, Font_11x18);
+    DrawCentered("km/h", 16 + 18 + 2, Font_7x10);
+
+    /* dolny pasek */
+    ssd1306_Line(0, SSD1306_HEIGHT - 20, SSD1306_WIDTH - 1, SSD1306_HEIGHT - 20, White);
+
+    int col1_x = 2;
+    int col2_x = (SSD1306_WIDTH / 2) - 22;
+    int col3_x = SSD1306_WIDTH - 48;
+    int base_y = SSD1306_HEIGHT - 18;
+
+    snprintf(buf, sizeof(buf), "%.0f W", power);
+    DrawLabelValue(col1_x, base_y, "PWR", buf);
+
+    snprintf(buf, sizeof(buf), "%.1f V", batteryVoltage);
+    DrawLabelValue(col2_x, base_y, "VOLT", buf);
+
+    snprintf(buf, sizeof(buf), "%.1f km", totalDistance);
+    DrawLabelValue(col3_x, base_y, "TRIP", buf);
+
+    ssd1306_UpdateScreen();
+}
+
+/* ========================= POZOSTALE STRONY (Twoje) ======================= */
+
+void renderPage1(char* buffer)
+{
+    ssd1306_TestDrawBitmap();
+}
+
+void renderPage2(char* buffer)
+{
+    char displayBuffer[50];
+
+    ssd1306_SetCursor(65, 2);
+    sprintf(displayBuffer, "E:%.1f C", Avg_Tmp);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(65, 13);
+    sprintf(displayBuffer, "C:%.1f C", Avg_Tmp_S);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(10, 2);
+    sprintf(displayBuffer, ": %.1f V", batteryVoltage);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(15, 19);
+    sprintf(displayBuffer, "%.0f", speed);
+    ssd1306_WriteString(displayBuffer, Font_11x18, White);
+    ssd1306_SetCursor(40, 25);
+    sprintf(displayBuffer, "km/h");
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(15, 45);
+    sprintf(displayBuffer, "%.0f", power);
+    ssd1306_WriteString(displayBuffer, Font_11x18, White);
+    ssd1306_SetCursor(52, 51);
+    sprintf(displayBuffer, "W");
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(80, 26);
+    sprintf(displayBuffer, "%.1f A", current);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(79, 53);
+    sprintf(displayBuffer, "%.1f km", totalDistance);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(1, 29);
+    snprintf(displayBuffer, sizeof(displayBuffer), "%u", supportLevel);
+    ssd1306_WriteString(displayBuffer, Font_11x18, White);
+
+    int tempPercent = Avg_Tmp;
+    if(tempPercent < 0) tempPercent = 0;
+    else if(tempPercent > 100) tempPercent = 100;
+    int tempHeight = (int) (52*tempPercent/100);
+    for(int y=63; y>=0; y--)
+    {
+      for(int x=124; x<128; x++)
+      {
+        if(y >= (64-tempHeight)) ssd1306_DrawPixel(x, y, White);
+        else ssd1306_DrawPixel(x, y, Black);
+      }
+    }
+
+    float batPercent = ((batteryVoltage - 42) / (54.6 - 42)) * 100 ;
+    if(batPercent < 0) batPercent = 0;
+    else if(batPercent > 100) batPercent = 100;
+
+    uint8_t batteryWidth = 15;
+    uint8_t batteryHeight = 7;
+    uint8_t topLeftX = 2;
+    uint8_t topLeftY = 2;
+
+    ssd1306_DrawRectangle(topLeftX, topLeftY, topLeftX + batteryWidth, topLeftY + batteryHeight, White);
+    ssd1306_Line(topLeftX + batteryWidth + 1, topLeftY + 1, topLeftX + batteryWidth + 1, topLeftY + batteryHeight - 1, White);
+    int batteryLevelWidth =  (batPercent * batteryWidth) / 100;
+    ssd1306_FillRectangle(topLeftX + 1, topLeftY + 1, topLeftX + 1 + batteryLevelWidth, topLeftY + batteryHeight - 1, White);
+}
+
+void renderPage3(char* buffer)
+{
+    char displayBuffer[50];
+
+    ssd1306_SetCursor(65, 2);
+    sprintf(displayBuffer, "E:%.1f C", Avg_Tmp);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(65, 13);
+    sprintf(displayBuffer, "C:%.1f C", Avg_Tmp_S);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(10, 2);
+    sprintf(displayBuffer, ": %.1f V", batteryVoltage);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(15, 19);
+    sprintf(displayBuffer, "%.0f", GpsState.SpeedKilometers);
+    ssd1306_WriteString(displayBuffer, Font_11x18, White);
+    ssd1306_SetCursor(40, 25);
+    sprintf(displayBuffer, "km/h");
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(15, 45);
+    sprintf(displayBuffer, "%.0f", power);
+    ssd1306_WriteString(displayBuffer, Font_11x18, White);
+    ssd1306_SetCursor(52, 51);
+    sprintf(displayBuffer, "W");
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(80, 26);
+    sprintf(displayBuffer, "%.1f A", current);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(79, 53);
+    sprintf(displayBuffer, "%.1f km", GpsState.total_distance);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(83, 38);
+    sprintf(displayBuffer, "GPS");
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(1, 29);
+    snprintf(displayBuffer, sizeof(displayBuffer), "%u", supportLevel);
+    ssd1306_WriteString(displayBuffer, Font_11x18, White);
+
+    int tempPercent = Avg_Tmp;
+    if(tempPercent < 0) tempPercent = 0;
+    else if(tempPercent > 100) tempPercent = 100;
+    int tempHeight = (int) (52*tempPercent/100);
+    for(int y=63; y>=0; y--)
+    {
+      for(int x=124; x<128; x++)
+      {
+        if(y >= (64-tempHeight)) ssd1306_DrawPixel(x, y, White);
+        else ssd1306_DrawPixel(x, y, Black);
+      }
+    }
+
+    float batPercent = ((batteryVoltage - 42) / (54.6 - 42)) * 100 ;
+    if(batPercent < 0) batPercent = 0;
+    else if(batPercent > 100) batPercent = 100;
+
+    uint8_t batteryWidth = 15;
+    uint8_t batteryHeight = 7;
+    uint8_t topLeftX = 2;
+    uint8_t topLeftY = 2;
+
+    ssd1306_DrawRectangle(topLeftX, topLeftY, topLeftX + batteryWidth, topLeftY + batteryHeight, White);
+    ssd1306_Line(topLeftX + batteryWidth + 1, topLeftY + 1, topLeftX + batteryWidth + 1, topLeftY + batteryHeight - 1, White);
+    int batteryLevelWidth =  (batPercent * batteryWidth) / 100;
+    ssd1306_FillRectangle(topLeftX + 1, topLeftY + 1, topLeftX + 1 + batteryLevelWidth, topLeftY + batteryHeight - 1, White);
+}
+
+void renderPage4(char* buffer)
+{
+    char displayBuffer[50];
+
+    ssd1306_SetCursor(65, 2);
+    sprintf(displayBuffer, "E:%.1f C", Avg_Tmp);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(65, 13);
+    sprintf(displayBuffer, "C:%.1f C", Avg_Tmp_S);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(10, 2);
+    sprintf(displayBuffer, ": %.1f V", batteryVoltage);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(15, 25);
+    sprintf(displayBuffer, "%.1f", batteryCurrentCapacityAh);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+    ssd1306_SetCursor(50, 25);
+    sprintf(displayBuffer, "mAh");
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(15, 51);
+    sprintf(displayBuffer, "%.1f", batteryCurrentCapacityWh);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+    ssd1306_SetCursor(50, 51);
+    sprintf(displayBuffer, "Wh");
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(80, 26);
+    sprintf(displayBuffer, "%.1f A", current);
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(1, 29);
+    snprintf(displayBuffer, sizeof(displayBuffer), "%u", supportLevel);
+    ssd1306_WriteString(displayBuffer, Font_11x18, White);
+
+    int tempPercent = Avg_Tmp;
+    if(tempPercent < 0) tempPercent = 0;
+    else if(tempPercent > 100) tempPercent = 100;
+    int tempHeight = (int) (52*tempPercent/100);
+    for(int y=63; y>=0; y--)
+    {
+      for(int x=124; x<128; x++)
+      {
+        if(y >= (64-tempHeight)) ssd1306_DrawPixel(x, y, White);
+        else ssd1306_DrawPixel(x, y, Black);
+      }
+    }
+
+    float batPercent = ((batteryVoltage - 42) / (54.6 - 42)) * 100 ;
+    if(batPercent < 0) batPercent = 0;
+    else if(batPercent > 100) batPercent = 100;
+
+    uint8_t batteryWidth = 15;
+    uint8_t batteryHeight = 7;
+    uint8_t topLeftX = 2;
+    uint8_t topLeftY = 2;
+
+    ssd1306_DrawRectangle(topLeftX, topLeftY, topLeftX + batteryWidth, topLeftY + batteryHeight, White);
+    ssd1306_Line(topLeftX + batteryWidth + 1, topLeftY + 1, topLeftX + batteryWidth + 1, topLeftY + batteryHeight - 1, White);
+    int batteryLevelWidth =  (batPercent * batteryWidth) / 100;
+    ssd1306_FillRectangle(topLeftX + 1, topLeftY + 1, topLeftX + 1 + batteryLevelWidth, topLeftY + batteryHeight - 1, White);
+}
+
+void renderPage5(char* buffer)
+{
+    char displayBuffer[50];
+
+    ssd1306_SetCursor(10, 0);
+    sprintf(displayBuffer, "GPS INFORMATION");
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(2, 9);
+    sprintf(displayBuffer, "SatelitesNumber: %d", GpsState.SatelitesNumber);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(2, 18);
+    sprintf(displayBuffer, "Date: %d.%d.%d", GpsState.Day, GpsState.Month, GpsState.Year);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(2, 27);
+    sprintf(displayBuffer, "Time: %d:%d:%d", GpsState.Hour, GpsState.Minute, GpsState.Second);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(2, 36);
+    sprintf(displayBuffer, "Speed: %.2f km/h", GpsState.SpeedKilometers);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(2, 45);
+    sprintf(displayBuffer, "Lat: %f", GpsState.Latitude);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(2, 54);
+    sprintf(displayBuffer, "Long: %f",GpsState.Longitude);
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+}
+
+void renderPage6(char* buffer)
+{
+    char displayBuffer[50];
+
+    ssd1306_SetCursor(35, 2);
+    sprintf(displayBuffer, "SETTINGS");
+    ssd1306_WriteString(displayBuffer, Font_7x10, White);
+
+    ssd1306_SetCursor(0, 15);
+    sprintf(displayBuffer, "-Temperature_SENS ");
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+
+    ssd1306_SetCursor(0, 30);
+    sprintf(displayBuffer, "-Current_SENS_CALIB");
+    ssd1306_WriteString(displayBuffer, Font_6x8, White);
+}
+
+/* ========================= UART callback (GPS) ============================ */
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if(huart == GpsState.neo6_huart)
+    {
+        NEO6_ReceiveUartChar(&GpsState);
+    }
+}
+
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  __disable_irq();
+  while (1)
+  {
+  }
+}
+
+#ifdef  USE_FULL_ASSERT
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* User can add reporting here */
+}
+#endif /* USE_FULL_ASSERT */

@@ -1,0 +1,96 @@
+Translacja STEP do Solid Edge
+Data: czwartek,paŸdziernik 09,2025 01:46PM
+Plik Ÿród³owy: C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\MPeV6PCBstl.step
+Autor: Pcbnew
+Organizacja: Kicad
+System Ÿród³owy: KiCad to STEP converter
+
+Sprzêt:
+Procesor: 12th Gen Intel(R) Core(TM) i5-12500H
+System operacyjny: Windows 11 Professional Version:24H2 Build:26100 System Type:64-bit
+Zainstalowana pamiêæ: 15.73 GB
+
+Informacje o oprogramowaniu
+Wersja Parasolid: 37.0.118
+Wersja PSBodyShop: 37.0.94
+Wersja adaptera Step: 15.0.142
+Wersja Solid Edge: 225.00.01.004 x64
+
+Opcje importu STEP
+Importuj bry³y uproszczone: W³¹cz
+Importuj bry³y kontrolne: Wy³¹cz
+Importuj krzywe: W³¹cz
+Importuj bez zapisu: W³¹cz
+Importuj wiele obiektów jako pojedynczy plik czêœci: W³¹cz
+Optymalizacja importu:Wy³¹cz
+Importuj powierzchnie zszywane: W³¹cz
+Importuj obiekty bry³owe operacji Boole'a: W³¹cz
+Utwórz element podstawowy: W³¹cz
+Upraszczaj geometriê: W³¹cz
+Importuj krzywe odciœniête: W³¹cz
+Importuj napêd: C:
+Importuj powierzchnie zszywane: W³¹cz
+Importuj powierzchnie: W³¹cz
+Importuj œcie¿kê wyjœciow¹: C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB
+Importuj domyœln¹ œcie¿kê wyjœciow¹: W³¹cz
+Importuj PMI: Wy³¹cz
+Importuj jako komponenty wewnêtrzne: Wy³¹cz
+Œcie¿ka importu: 
+
+Translacja do typów danych Parasolid...
++Pocz¹tek z³o¿enia: 1
++Utworzono plik z³o¿enia SE C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\MPeV6PCBstl.asm
+|--+Utworzono plik czêœci SE C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Utworzono plik czêœci SE C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\SW_DIP_SPSTx02_Slide_9.78x7.26mm_W7.62mm_P2.54mm.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\SW_DIP_SPSTx02_Slide_9.78x7.26mm_W7.62mm_P2.54mm.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Utworzono plik czêœci SE C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\D_MELF.par
+|--+Utworzono plik czêœci SE C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\C_0603_1608Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\C_0603_1608Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\C_0603_1608Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\C_0603_1608Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\C_0603_1608Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\C_0603_1608Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\R_0805_2012Metric.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\D_MELF.par
+|--+Ponowne u¿ycie pliku C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\C_0603_1608Metric.par
+|--+Utworzono plik czêœci SE C:\Users\mpiwowarski\OneDrive\Dokumenty\MPe_V6_WORK\MPeV6PCB\MPeV6PCB_PCB.par
++Wszystkich czêœci: 52
++Z³o¿eñ: 0
++Bry³: 52
++Obiektów powierzchniowych: 0
++Koniec z³o¿enia: 1
+Proces translacji zosta³ zakoñczony
+Ca³kowity czas wymagany do translacji i dalszego przetwarzania:00 : 00 : 01
