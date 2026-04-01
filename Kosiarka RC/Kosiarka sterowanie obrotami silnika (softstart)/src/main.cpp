@@ -24,15 +24,24 @@ static const int X9C_CS_PIN = 14;
 static const int X9C_INC_PIN = 26;
 static const int X9C_UD_PIN = 25;
 static const int X9C_MAX_STEPS = 99;
+// Twardy limit wyjscia X9C, zeby nie przekroczyc bezpiecznego napiecia na sterowaniu silnika.
+static const int X9C_OUTPUT_MAX_STEP = 85;
+// Skala tylko do wyswietlania procentow na TFT. Ustawiona tak, aby realne maksimum pracy pokazywalo 100%.
+static const int X9C_DISPLAY_FULL_SCALE_STEP = 27;
 static const int RC_INPUT_PIN = 27;
 static const uint16_t RC_PULSE_VALID_MIN_US = 900;
 static const uint16_t RC_PULSE_VALID_MAX_US = 2100;
 static const uint16_t RC_PULSE_MIN_US = 1000;
 static const uint16_t RC_PULSE_MAX_US = 2000;
 static const uint16_t RC_PULSE_ZERO_THRESHOLD_US = 1050;
+// Zakres RC, na ktory rozciagamy caly bezpieczny zakres potencjometru X9C.
+static const uint16_t RC_PULSE_X9C_ACTIVE_MIN_US = 1000;
+static const uint16_t RC_PULSE_X9C_ACTIVE_MAX_US = 4000;
 static const uint32_t RC_PULSE_READ_TIMEOUT_US = 30000;
 static const uint8_t RC_FILTER_SMOOTHING_SHIFT = 2;  // 1/4 nowej probki
+// Ogranicza szybkosc zmian X9C; wieksza wartosc = szybsza reakcja silnika.
 static const uint8_t X9C_MAX_STEP_CHANGE_PER_UPDATE = 1;
+static const uint16_t X9C_STEP_UPDATE_INTERVAL_MS = 150;
 
 // Temperatura
 static const int TEMP_PIN = 35;
@@ -175,8 +184,8 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     const uint16_t textDim = tft.color565(165, 175, 188);
     const uint16_t startWaitColor = tft.color565(255, 165, 0);
 
-    const int inputPct = (targetStep * 100) / X9C_MAX_STEPS;
-    const int outputPct = (outputStep * 100) / X9C_MAX_STEPS;
+    const int inputPct = min(100, (targetStep * 100) / X9C_DISPLAY_FULL_SCALE_STEP);
+    const int outputPct = min(100, (outputStep * 100) / X9C_DISPLAY_FULL_SCALE_STEP);
     const int barIn = (112 * inputPct) / 100;
     const int barOut = (112 * outputPct) / 100;
     const float tempClamped = min(max(temp, 0.0f), TEMP_THRESHOLD);
@@ -346,8 +355,8 @@ void x9cForceToZero() {
 }
 
 void x9cSetStep(uint8_t targetStep) {
-    if (targetStep > X9C_MAX_STEPS) {
-        targetStep = X9C_MAX_STEPS;
+    if (targetStep > X9C_OUTPUT_MAX_STEP) {
+        targetStep = X9C_OUTPUT_MAX_STEP;
     }
 
     if (targetStep == x9cCurrentStep) {
@@ -389,14 +398,14 @@ uint8_t inputPulseToX9cStep(uint16_t pulseUs) {
     }
 
     uint16_t clampedPulseUs = pulseUs;
-    if (clampedPulseUs < RC_PULSE_MIN_US) {
-        clampedPulseUs = RC_PULSE_MIN_US;
+    if (clampedPulseUs < RC_PULSE_X9C_ACTIVE_MIN_US) {
+        clampedPulseUs = RC_PULSE_X9C_ACTIVE_MIN_US;
     }
-    if (clampedPulseUs > RC_PULSE_MAX_US) {
-        clampedPulseUs = RC_PULSE_MAX_US;
+    if (clampedPulseUs > RC_PULSE_X9C_ACTIVE_MAX_US) {
+        clampedPulseUs = RC_PULSE_X9C_ACTIVE_MAX_US;
     }
 
-    return (uint8_t)((uint32_t)(clampedPulseUs - RC_PULSE_ZERO_THRESHOLD_US) * X9C_MAX_STEPS / (RC_PULSE_MAX_US - RC_PULSE_ZERO_THRESHOLD_US));
+    return (uint8_t)((uint32_t)(clampedPulseUs - RC_PULSE_X9C_ACTIVE_MIN_US) * X9C_OUTPUT_MAX_STEP / (RC_PULSE_X9C_ACTIVE_MAX_US - RC_PULSE_X9C_ACTIVE_MIN_US));
 }
 
 uint16_t smoothReceiverPulseUs(uint16_t previousPulseUs, uint16_t newPulseUs) {
@@ -619,6 +628,7 @@ void loop() {
     static bool displaySweeping = true;
     static bool signalLossLatched = false;
     static uint16_t filteredInputPulseUs = 0;
+    static uint32_t lastX9cStepUpdate = 0;
 
     if (DIAGNOSTIC_DISPLAY_ONLY) {
         static uint32_t lastDiagUpdate = 0;
@@ -723,7 +733,10 @@ void loop() {
             resetControlToSafeState();
         } else {
             signalLossLatched = false;
-            x9cSetStep(limitX9cStepChange(x9cCurrentStep, targetStep));
+            if (now - lastX9cStepUpdate >= X9C_STEP_UPDATE_INTERVAL_MS) {
+                x9cSetStep(limitX9cStepChange(x9cCurrentStep, targetStep));
+                lastX9cStepUpdate = now;
+            }
 
             if (ENABLE_PWM_OUTPUT && isSweeping) {
                 uint32_t elapsedTime = millis() - sweepStartTime;
