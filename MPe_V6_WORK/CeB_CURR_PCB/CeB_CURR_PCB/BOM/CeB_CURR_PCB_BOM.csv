@@ -1,0 +1,14 @@
+"sep=;"
+Id;Designator;Footprint;Quantity;Value;Supplier and ref
+1;C1,C2;Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder;2;100nF;
+2;J1;SamacSys_Parts:XT60PWF;1;XT60PW-F;
+3;J2;SamacSys_Parts:XT60PWM;1;XT60PW-M;
+4;J3;New_Library_Footprint:HOLE;1;BAT+;
+5;J4;New_Library_Footprint:HOLE;1;VCC;
+6;J5;New_Library_Footprint:HOLE;1;GND;
+7;J6;New_Library_Footprint:HOLE;1;OUT;
+8;J7;New_Library_Footprint:HOLE;1;BAT-;
+9;J8;New_Library_Footprint:HOLE;1;SHD;
+10;R1;Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder;1;0;
+11;R2;Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder;1;1K;
+12;U1;Sensor_Current:Allegro_CB_PFF;1;ACS758xCB-050B-PFF;
