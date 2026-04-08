@@ -48,6 +48,8 @@ static const uint32_t GYRO_MODE_PULSE_READ_TIMEOUT_US = 30000;
 static const uint16_t GYRO_MODE_ON_THRESHOLD_US = 1600;
 static const uint16_t GYRO_MODE_OFF_THRESHOLD_US = 1400;
 static const uint16_t GYRO_MODE_READ_INTERVAL_MS = 100;
+static const uint16_t GYRO_STEER_DEADBAND_US = 80;  // martwa strefa prawej gałki w trybie gyro
+static const float GYRO_HEADING_ADJUST_RATE_DPS = 40.0f;  // maksymalna zmiana celu kursu na sekundę
 
 // BMI160 - zyroskop do prostego trybu "heading hold"
 static const int BMI160_SDA_PIN = 21;
@@ -798,6 +800,14 @@ void updateGyroHeadingHold() {
         gyroHold.headingErrorDeg = 0.0f;
         gyroHold.correction = 0.0f;
         return;
+    }
+
+    if (gyroHold.switchSignalPresent) {
+        float steerNorm = ((float)gyroHold.switchPulseUs - 1500.0f) / 500.0f;
+        if (fabsf(steerNorm) > ((float)GYRO_STEER_DEADBAND_US / 500.0f)) {
+            steerNorm = constrain(steerNorm, -1.0f, 1.0f);
+            gyroHold.targetHeadingDeg = normalizeAngleDeg(gyroHold.targetHeadingDeg + steerNorm * GYRO_HEADING_ADJUST_RATE_DPS * dt);
+        }
     }
 
     gyroHold.headingErrorDeg = normalizeAngleDeg(gyroHold.targetHeadingDeg - gyroHold.headingDeg);
