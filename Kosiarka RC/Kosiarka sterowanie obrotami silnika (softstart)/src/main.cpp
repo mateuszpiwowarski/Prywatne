@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <esp_system.h>
 #include <math.h>
+#include <Wire.h>
 
 // =========================
 // PINY SPI - WYŚWIETLACZ TFT
@@ -42,6 +43,24 @@ static const uint8_t RC_FILTER_SMOOTHING_SHIFT = 2;  // 1/4 nowej probki
 // Ogranicza szybkosc zmian X9C; wieksza wartosc = szybsza reakcja silnika.
 static const uint8_t X9C_MAX_STEP_CHANGE_PER_UPDATE = 1;
 static const uint16_t X9C_STEP_UPDATE_INTERVAL_MS = 150;
+static const int GYRO_MODE_RC_PIN = 34;
+static const uint32_t GYRO_MODE_PULSE_READ_TIMEOUT_US = 30000;
+static const uint16_t GYRO_MODE_ON_THRESHOLD_US = 1600;
+static const uint16_t GYRO_MODE_OFF_THRESHOLD_US = 1400;
+static const uint16_t GYRO_MODE_READ_INTERVAL_MS = 100;
+
+// BMI160 - zyroskop do prostego trybu "heading hold"
+static const int BMI160_SDA_PIN = 21;
+static const int BMI160_SCL_PIN = 32;
+static const uint32_t BMI160_I2C_CLOCK_HZ = 400000;
+static const uint8_t BMI160_I2C_ADDR_PRIMARY = 0x69;
+static const uint8_t BMI160_I2C_ADDR_SECONDARY = 0x68;
+static const uint16_t BMI160_CALIBRATION_SAMPLES = 400;
+static const float BMI160_GYRO_Z_LSB_PER_DPS = 131.2f;   // zakres +/-250 dps
+static const float BMI160_GYRO_Z_DEADBAND_DPS = 0.15f;
+static const float HEADING_HOLD_P_GAIN = 2.5f;           // przyszla korekta do sterowania
+static const float HEADING_HOLD_MAX_CORRECTION = 60.0f;
+static const float HEADING_DISPLAY_JITTER_DEG = 0.05f;
 
 // Temperatura
 static const int TEMP_PIN = 35;
@@ -68,6 +87,32 @@ static const uint32_t TFT_TEXT_COLOR = TFT_WHITE;
 static const uint32_t TFT_ALERT_COLOR = TFT_RED;
 static const uint32_t TFT_OK_COLOR = TFT_GREEN;
 
+// Rejestry BMI160 wykorzystywane w prostym odczycie po I2C
+static const uint8_t BMI160_REG_CHIP_ID = 0x00;
+static const uint8_t BMI160_REG_GYRO_DATA = 0x0C;
+static const uint8_t BMI160_REG_COMMAND = 0x7E;
+static const uint8_t BMI160_REG_GYRO_RANGE = 0x43;
+static const uint8_t BMI160_CHIP_ID = 0xD1;
+static const uint8_t BMI160_CMD_SOFT_RESET = 0xB6;
+static const uint8_t BMI160_CMD_ACCEL_NORMAL = 0x11;
+static const uint8_t BMI160_CMD_GYRO_NORMAL = 0x15;
+static const uint8_t BMI160_GYRO_RANGE_250_DPS = 0x03;
+
+struct GyroHoldState {
+    bool sensorFound = false;
+    bool holdEnabled = false;
+    bool switchSignalPresent = false;
+    uint8_t i2cAddress = 0;
+    uint16_t switchPulseUs = 0;
+    float gyroZBiasDps = 0.0f;
+    float headingDeg = 0.0f;
+    float targetHeadingDeg = 0.0f;
+    float headingErrorDeg = 0.0f;
+    float correction = 0.0f;
+    uint32_t lastUpdateUs = 0;
+    uint32_t lastSwitchReadMs = 0;
+};
+
 // Zmienne stanu
 uint32_t currentFreq = 0;
 uint8_t currentDutyPercent = 50;
@@ -88,6 +133,7 @@ bool startupMessageShown = false;
 // Zmienne temperatury
 bool thermalShutdownActive = false;
 uint16_t lastTempAdcRaw = 0;
+GyroHoldState gyroHold;
 
 void printBootStage(const char* message) {
     Serial.print("[BOOT] ");
@@ -176,6 +222,10 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     static int lastStartupUnlocked = -1;
     static int lastSweeping = -1;
     static int lastStartState = -1;
+    static int lastGyroState = -1;
+    static int lastGyroSwitchState = -1;
+    static int lastHeadingDeciDeg = 100000;
+    static int lastCorrectionDeci = 100000;
     const uint16_t panel = tft.color565(20, 24, 34);
     const uint16_t panelSoft = tft.color565(38, 44, 58);
     const uint16_t accentIn = tft.color565(0, 200, 175);
@@ -183,6 +233,7 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     const uint16_t accentTemp = thermalShutdownActive ? TFT_RED : tft.color565(90, 220, 120);
     const uint16_t textDim = tft.color565(165, 175, 188);
     const uint16_t startWaitColor = tft.color565(255, 165, 0);
+    const uint16_t accentGyro = gyroHold.sensorFound ? (gyroHold.holdEnabled ? tft.color565(70, 180, 255) : tft.color565(90, 120, 150)) : tft.color565(120, 70, 70);
 
     const int inputPct = min(100, (targetStep * 100) / X9C_DISPLAY_FULL_SCALE_STEP);
     const int outputPct = min(100, (outputStep * 100) / X9C_DISPLAY_FULL_SCALE_STEP);
@@ -194,6 +245,10 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     const int startState = thermalShutdownActive ? 0 : (displayStartupUnlocked ? 2 : 1);
     const char* startLabel = (startState == 0) ? "OFF" : ((startState == 1) ? "WAIT" : "GO");
     const uint16_t startColor = (startState == 0) ? TFT_RED : ((startState == 1) ? startWaitColor : TFT_GREEN);
+    const int gyroState = gyroHold.sensorFound ? (gyroHold.holdEnabled ? 2 : 1) : 0;
+    const int gyroSwitchState = gyroHold.switchSignalPresent ? 1 : 0;
+    const int headingDeciDeg = (int)roundf(gyroHold.headingDeg * 10.0f);
+    const int correctionDeci = (int)roundf(gyroHold.correction * 10.0f);
 
     if (!layoutDrawn) {
         tft.fillScreen(TFT_BG_COLOR);
@@ -212,6 +267,9 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
         tft.drawRoundRect(144, 40, 128, 86, 12, accentOut);
         tft.setTextColor(textDim, panel);
         tft.drawString("WYJSCIE", 154, 50, 2);
+
+        tft.fillRoundRect(8, 240, 264, 28, 10, panel);
+        tft.drawRoundRect(8, 240, 264, 28, 10, accentGyro);
 
         layoutDrawn = true;
     }
@@ -292,6 +350,27 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
         lastSweeping = displaySweeping ? 1 : 0;
         lastStartState = startState;
     }
+
+    if (gyroState != lastGyroState || gyroSwitchState != lastGyroSwitchState || headingDeciDeg != lastHeadingDeciDeg || correctionDeci != lastCorrectionDeci) {
+        const char* gyroLabel = gyroState == 2 ? "GYRO HOLD" : (gyroState == 1 ? "GYRO READY" : "GYRO OFF");
+        const uint16_t gyroColor = gyroState == 2 ? tft.color565(70, 180, 255) : (gyroState == 1 ? textDim : TFT_ALERT_COLOR);
+
+        tft.fillRoundRect(8, 240, 264, 28, 10, panel);
+        tft.drawRoundRect(8, 240, 264, 28, 10, accentGyro);
+        tft.setTextColor(gyroColor, panel);
+        tft.drawString(gyroLabel, 14, 247, 2);
+        tft.setTextColor(textDim, panel);
+        tft.drawString("HDG " + String(gyroHold.headingDeg, 1), 104, 247, 2);
+        tft.drawString("COR " + String(gyroHold.correction, 1), 182, 247, 2);
+        if (!gyroHold.switchSignalPresent) {
+            tft.drawString("SW?", 235, 247, 2);
+        }
+
+        lastGyroState = gyroState;
+        lastGyroSwitchState = gyroSwitchState;
+        lastHeadingDeciDeg = headingDeciDeg;
+        lastCorrectionDeci = correctionDeci;
+    }
 }
 
 // =========================
@@ -299,6 +378,15 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
 // =========================
 void x9cSetStep(uint8_t targetStep);
 void printStatus(uint16_t inputPulseUs, uint8_t targetStep, float temp);
+uint16_t readPulseUsFromPin(int pin, uint32_t timeoutUs);
+uint16_t readGyroModePulseUs();
+void updateGyroModeSwitch();
+bool bmi160Begin();
+bool calibrateBmi160Gyro();
+bool readBmi160GyroZ(float& gyroZDps);
+void updateGyroHeadingHold();
+float normalizeAngleDeg(float angleDeg);
+void resetGyroHoldTarget();
 
 uint32_t dutyPercentToRaw(uint8_t percent, int resolutionBits) {
     uint32_t maxDuty = (1UL << resolutionBits) - 1;
@@ -382,14 +470,21 @@ bool hasValidReceiverSignal(uint16_t pulseUs) {
     return pulseUs >= RC_PULSE_VALID_MIN_US && pulseUs <= RC_PULSE_VALID_MAX_US;
 }
 
-uint16_t readReceiverPulseUs() {
-    uint32_t pulseUs = pulseIn(RC_INPUT_PIN, HIGH, RC_PULSE_READ_TIMEOUT_US);
-
+uint16_t readPulseUsFromPin(int pin, uint32_t timeoutUs) {
+    uint32_t pulseUs = pulseIn(pin, HIGH, timeoutUs);
     if (!hasValidReceiverSignal((uint16_t)pulseUs)) {
         return 0;
     }
 
     return (uint16_t)pulseUs;
+}
+
+uint16_t readReceiverPulseUs() {
+    return readPulseUsFromPin(RC_INPUT_PIN, RC_PULSE_READ_TIMEOUT_US);
+}
+
+uint16_t readGyroModePulseUs() {
+    return readPulseUsFromPin(GYRO_MODE_RC_PIN, GYRO_MODE_PULSE_READ_TIMEOUT_US);
 }
 
 uint8_t inputPulseToX9cStep(uint16_t pulseUs) {
@@ -507,6 +602,208 @@ void updateThermalProtection(float temp) {
     }
 }
 
+float normalizeAngleDeg(float angleDeg) {
+    while (angleDeg > 180.0f) {
+        angleDeg -= 360.0f;
+    }
+    while (angleDeg < -180.0f) {
+        angleDeg += 360.0f;
+    }
+    return angleDeg;
+}
+
+bool bmi160WriteRegister(uint8_t reg, uint8_t value) {
+    Wire.beginTransmission(gyroHold.i2cAddress);
+    Wire.write(reg);
+    Wire.write(value);
+    return Wire.endTransmission() == 0;
+}
+
+bool bmi160ReadRegisters(uint8_t reg, uint8_t* data, size_t len) {
+    Wire.beginTransmission(gyroHold.i2cAddress);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) {
+        return false;
+    }
+
+    size_t received = Wire.requestFrom((int)gyroHold.i2cAddress, (int)len);
+    if (received != len) {
+        return false;
+    }
+
+    for (size_t i = 0; i < len; i++) {
+        data[i] = Wire.read();
+    }
+
+    return true;
+}
+
+bool detectBmi160AtAddress(uint8_t address) {
+    uint8_t chipId = 0;
+
+    gyroHold.i2cAddress = address;
+    if (!bmi160ReadRegisters(BMI160_REG_CHIP_ID, &chipId, 1)) {
+        return false;
+    }
+
+    return chipId == BMI160_CHIP_ID;
+}
+
+bool bmi160Begin() {
+    Wire.begin(BMI160_SDA_PIN, BMI160_SCL_PIN, BMI160_I2C_CLOCK_HZ);
+
+    if (detectBmi160AtAddress(BMI160_I2C_ADDR_PRIMARY)) {
+        gyroHold.i2cAddress = BMI160_I2C_ADDR_PRIMARY;
+    } else if (detectBmi160AtAddress(BMI160_I2C_ADDR_SECONDARY)) {
+        gyroHold.i2cAddress = BMI160_I2C_ADDR_SECONDARY;
+    } else {
+        gyroHold.sensorFound = false;
+        return false;
+    }
+
+    if (!bmi160WriteRegister(BMI160_REG_COMMAND, BMI160_CMD_SOFT_RESET)) {
+        return false;
+    }
+    delay(20);
+
+    if (!bmi160WriteRegister(BMI160_REG_COMMAND, BMI160_CMD_ACCEL_NORMAL)) {
+        return false;
+    }
+    delay(50);
+
+    if (!bmi160WriteRegister(BMI160_REG_COMMAND, BMI160_CMD_GYRO_NORMAL)) {
+        return false;
+    }
+    delay(100);
+
+    if (!bmi160WriteRegister(BMI160_REG_GYRO_RANGE, BMI160_GYRO_RANGE_250_DPS)) {
+        return false;
+    }
+
+    gyroHold.sensorFound = true;
+    gyroHold.holdEnabled = false;
+    gyroHold.headingDeg = 0.0f;
+    gyroHold.targetHeadingDeg = 0.0f;
+    gyroHold.headingErrorDeg = 0.0f;
+    gyroHold.correction = 0.0f;
+    gyroHold.lastUpdateUs = micros();
+    return true;
+}
+
+bool readBmi160GyroZ(float& gyroZDps) {
+    uint8_t raw[6] = {0};
+    if (!gyroHold.sensorFound || !bmi160ReadRegisters(BMI160_REG_GYRO_DATA, raw, sizeof(raw))) {
+        return false;
+    }
+
+    int16_t gyroZRaw = (int16_t)((raw[5] << 8) | raw[4]);
+    gyroZDps = (float)gyroZRaw / BMI160_GYRO_Z_LSB_PER_DPS;
+    return true;
+}
+
+bool calibrateBmi160Gyro() {
+    if (!gyroHold.sensorFound) {
+        return false;
+    }
+
+    float biasSum = 0.0f;
+    uint16_t validSamples = 0;
+
+    for (uint16_t i = 0; i < BMI160_CALIBRATION_SAMPLES; i++) {
+        float gyroZDps = 0.0f;
+        if (readBmi160GyroZ(gyroZDps)) {
+            biasSum += gyroZDps;
+            validSamples++;
+        }
+        delay(2);
+    }
+
+    if (validSamples == 0) {
+        return false;
+    }
+
+    gyroHold.gyroZBiasDps = biasSum / validSamples;
+    gyroHold.headingDeg = 0.0f;
+    gyroHold.targetHeadingDeg = 0.0f;
+    gyroHold.headingErrorDeg = 0.0f;
+    gyroHold.correction = 0.0f;
+    gyroHold.lastUpdateUs = micros();
+    return true;
+}
+
+void resetGyroHoldTarget() {
+    gyroHold.targetHeadingDeg = gyroHold.headingDeg;
+    gyroHold.headingErrorDeg = 0.0f;
+    gyroHold.correction = 0.0f;
+}
+
+void updateGyroModeSwitch() {
+    uint32_t now = millis();
+    if (now - gyroHold.lastSwitchReadMs < GYRO_MODE_READ_INTERVAL_MS) {
+        return;
+    }
+
+    gyroHold.lastSwitchReadMs = now;
+    gyroHold.switchPulseUs = readGyroModePulseUs();
+    gyroHold.switchSignalPresent = hasValidReceiverSignal(gyroHold.switchPulseUs);
+
+    if (!gyroHold.switchSignalPresent) {
+        gyroHold.holdEnabled = false;
+        gyroHold.headingErrorDeg = 0.0f;
+        gyroHold.correction = 0.0f;
+        return;
+    }
+
+    if (gyroHold.switchPulseUs >= GYRO_MODE_ON_THRESHOLD_US) {
+        if (!gyroHold.holdEnabled) {
+            gyroHold.holdEnabled = true;
+            resetGyroHoldTarget();
+        }
+    } else if (gyroHold.switchPulseUs <= GYRO_MODE_OFF_THRESHOLD_US) {
+        gyroHold.holdEnabled = false;
+        gyroHold.headingErrorDeg = 0.0f;
+        gyroHold.correction = 0.0f;
+    }
+}
+
+void updateGyroHeadingHold() {
+    if (!gyroHold.sensorFound) {
+        gyroHold.correction = 0.0f;
+        return;
+    }
+
+    float gyroZDps = 0.0f;
+    if (!readBmi160GyroZ(gyroZDps)) {
+        return;
+    }
+
+    uint32_t nowUs = micros();
+    float dt = (nowUs - gyroHold.lastUpdateUs) / 1000000.0f;
+    gyroHold.lastUpdateUs = nowUs;
+    if (dt <= 0.0f || dt > 0.25f) {
+        return;
+    }
+
+    float correctedGyroZDps = gyroZDps - gyroHold.gyroZBiasDps;
+    if (fabsf(correctedGyroZDps) < BMI160_GYRO_Z_DEADBAND_DPS) {
+        correctedGyroZDps = 0.0f;
+    }
+
+    gyroHold.headingDeg = normalizeAngleDeg(gyroHold.headingDeg + correctedGyroZDps * dt);
+    if (fabsf(gyroHold.headingDeg) < HEADING_DISPLAY_JITTER_DEG) {
+        gyroHold.headingDeg = 0.0f;
+    }
+
+    if (!gyroHold.holdEnabled) {
+        gyroHold.headingErrorDeg = 0.0f;
+        gyroHold.correction = 0.0f;
+        return;
+    }
+
+    gyroHold.headingErrorDeg = normalizeAngleDeg(gyroHold.targetHeadingDeg - gyroHold.headingDeg);
+    gyroHold.correction = constrain(gyroHold.headingErrorDeg * HEADING_HOLD_P_GAIN, -HEADING_HOLD_MAX_CORRECTION, HEADING_HOLD_MAX_CORRECTION);
+}
+
 void printStatus(uint16_t inputPulseUs, uint8_t targetStep, float temp) {
     Serial.print("IN_RC=");
     if (inputPulseUs == 0) {
@@ -530,7 +827,28 @@ void printStatus(uint16_t inputPulseUs, uint8_t targetStep, float temp) {
     }
     Serial.print(startupUnlocked ? "ON" : "WAIT");
     Serial.print(" THERM=");
-    Serial.println(thermalShutdownActive ? "LOCK" : "OK");
+    Serial.print(thermalShutdownActive ? "LOCK" : "OK");
+    Serial.print(" GYRO=");
+    if (!gyroHold.sensorFound) {
+        Serial.print("NO_SENSOR");
+    } else if (gyroHold.holdEnabled) {
+        Serial.print("HOLD");
+    } else {
+        Serial.print("READY");
+    }
+    Serial.print(" SW=");
+    if (!gyroHold.switchSignalPresent) {
+        Serial.print("NO_SIG");
+    } else {
+        Serial.print(gyroHold.switchPulseUs);
+        Serial.print("us");
+    }
+    Serial.print(" HDG=");
+    Serial.print(gyroHold.headingDeg, 2);
+    Serial.print(" ERR=");
+    Serial.print(gyroHold.headingErrorDeg, 2);
+    Serial.print(" COR=");
+    Serial.println(gyroHold.correction, 2);
 }
 
 bool startOrUpdatePwm(uint32_t freq, uint8_t dutyPercent) {
@@ -589,12 +907,28 @@ void setup() {
     pinMode(PWM_PIN, OUTPUT);
     digitalWrite(PWM_PIN, LOW);
     pinMode(RC_INPUT_PIN, INPUT);
+    pinMode(GYRO_MODE_RC_PIN, INPUT);
 
     // Inicjalizacja X9C103S
     printBootStage("Init X9C");
     x9cInit();
     x9cForceToZero();
     stopPwm();
+    printBootStage("Init BMI160");
+    if (bmi160Begin()) {
+        if (calibrateBmi160Gyro()) {
+            Serial.print("BMI160 gotowy na adresie 0x");
+            Serial.print(gyroHold.i2cAddress, HEX);
+            Serial.print(", bias Z=");
+            Serial.print(gyroHold.gyroZBiasDps, 4);
+            Serial.println(" dps");
+        } else {
+            Serial.println("BMI160 wykryty, ale kalibracja nie powiodla sie.");
+            gyroHold.sensorFound = false;
+        }
+    } else {
+        Serial.println("BMI160 nie wykryty. Softstart bedzie dzialal bez trybu zyroskopu.");
+    }
     
     // Inicjalizacja wyświetlacza TFT
     printBootStage("Init TFT");
@@ -677,6 +1011,8 @@ void loop() {
     filteredInputPulseUs = smoothReceiverPulseUs(filteredInputPulseUs, inputPulseUs);
     uint8_t targetStep = inputPulseToX9cStep(filteredInputPulseUs);
     uint32_t now = millis();
+    updateGyroModeSwitch();
+    updateGyroHeadingHold();
 
     if (!tempInitialized || (now - lastTempSample >= TEMP_SAMPLE_INTERVAL_MS)) {
         currentTemp = readTemperature();
@@ -788,6 +1124,12 @@ void loop() {
         input.trim();
 
         if (input.length() == 0) {
+            return;
+        }
+
+        if (input.equalsIgnoreCase("GYRORESET")) {
+            resetGyroHoldTarget();
+            Serial.println("Zresetowano target heading do aktualnego kata.");
             return;
         }
 

@@ -8,9 +8,9 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "D:/BeckUP/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/include",
-                "D:/BeckUP/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/src",
-                "D:/BeckUP/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/.pio/libdeps/esp32-wroom/TFT_eSPI",
+                "C:/Users/mpiwowarski/Desktop/Prywatne/Prywatne/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/include",
+                "C:/Users/mpiwowarski/Desktop/Prywatne/Prywatne/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/src",
+                "C:/Users/mpiwowarski/Desktop/Prywatne/Prywatne/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/.pio/libdeps/esp32-wroom/TFT_eSPI",
                 "C:/Users/mpiwowarski/.platformio/packages/framework-arduinoespressif32/libraries/LittleFS/src",
                 "C:/Users/mpiwowarski/.platformio/packages/framework-arduinoespressif32/libraries/SPIFFS/src",
                 "C:/Users/mpiwowarski/.platformio/packages/framework-arduinoespressif32/libraries/FS/src",
@@ -245,9 +245,9 @@
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "D:/BeckUP/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/include",
-                    "D:/BeckUP/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/src",
-                    "D:/BeckUP/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/.pio/libdeps/esp32-wroom/TFT_eSPI",
+                    "C:/Users/mpiwowarski/Desktop/Prywatne/Prywatne/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/include",
+                    "C:/Users/mpiwowarski/Desktop/Prywatne/Prywatne/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/src",
+                    "C:/Users/mpiwowarski/Desktop/Prywatne/Prywatne/Kosiarka RC/Kosiarka sterowanie obrotami silnika (softstart)/.pio/libdeps/esp32-wroom/TFT_eSPI",
                     "C:/Users/mpiwowarski/.platformio/packages/framework-arduinoespressif32/libraries/LittleFS/src",
                     "C:/Users/mpiwowarski/.platformio/packages/framework-arduinoespressif32/libraries/SPIFFS/src",
                     "C:/Users/mpiwowarski/.platformio/packages/framework-arduinoespressif32/libraries/FS/src",

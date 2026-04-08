@@ -140,7 +140,7 @@ static int16_t INPUT_MIN;             // [-] Input target minimum limitation
 static uint16_t timeoutCntADC = ADC_PROTECT_TIMEOUT;  // Timeout counter for ADC Protection
 #endif
 
-#if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2)
+#if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2)
 static uint8_t  rx_buffer_L[SERIAL_BUFFER_SIZE];      // USART Rx DMA circular buffer
 static uint32_t rx_buffer_L_len = ARRAY_LEN(rx_buffer_L);
 #endif
@@ -148,13 +148,17 @@ static uint32_t rx_buffer_L_len = ARRAY_LEN(rx_buffer_L);
 static uint16_t timeoutCntSerial_L = SERIAL_TIMEOUT;  // Timeout counter for Rx Serial command
 static uint8_t  timeoutFlgSerial_L = 0;               // Timeout Flag for Rx Serial command: 0 = OK, 1 = Problem detected (line disconnected or wrong Rx data)
 #endif
+#if defined(GYRO_CORRECTION_SERIAL_USART2)
+static uint16_t timeoutCntSerialGyro_L = SERIAL_TIMEOUT;
+static uint8_t  timeoutFlgSerialGyro_L = 1;
+#endif
 #if defined(SIDEBOARD_SERIAL_USART2)
 SerialSideboard Sideboard_L;
 SerialSideboard Sideboard_L_raw;
 static uint32_t Sideboard_L_len = sizeof(Sideboard_L);
 #endif
 
-#if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3)
+#if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
 static uint8_t  rx_buffer_R[SERIAL_BUFFER_SIZE];      // USART Rx DMA circular buffer
 static uint32_t rx_buffer_R_len = ARRAY_LEN(rx_buffer_R);
 #endif
@@ -162,13 +166,17 @@ static uint32_t rx_buffer_R_len = ARRAY_LEN(rx_buffer_R);
 static uint16_t timeoutCntSerial_R = SERIAL_TIMEOUT;  // Timeout counter for Rx Serial command
 static uint8_t  timeoutFlgSerial_R = 0;               // Timeout Flag for Rx Serial command: 0 = OK, 1 = Problem detected (line disconnected or wrong Rx data)
 #endif
+#if defined(GYRO_CORRECTION_SERIAL_USART3)
+static uint16_t timeoutCntSerialGyro_R = SERIAL_TIMEOUT;
+static uint8_t  timeoutFlgSerialGyro_R = 1;
+#endif
 #if defined(SIDEBOARD_SERIAL_USART3)
 SerialSideboard Sideboard_R;
 SerialSideboard Sideboard_R_raw;
 static uint32_t Sideboard_R_len = sizeof(Sideboard_R);
 #endif
 
-#if defined(CONTROL_SERIAL_USART2)
+#if defined(CONTROL_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2)
 static SerialCommand commandL;
 static SerialCommand commandL_raw;
 static uint32_t commandL_len = sizeof(commandL);
@@ -177,7 +185,7 @@ static uint32_t commandL_len = sizeof(commandL);
   #endif
 #endif
 
-#if defined(CONTROL_SERIAL_USART3)
+#if defined(CONTROL_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
 static SerialCommand commandR;
 static SerialCommand commandR_raw;
 static uint32_t commandR_len = sizeof(commandR);
@@ -282,17 +290,17 @@ void Input_Init(void) {
     PWM_Init();
   #endif
 
-  #if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(FEEDBACK_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2)
+  #if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(FEEDBACK_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2)
     UART2_Init();
   #endif
-  #if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(FEEDBACK_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3)
+  #if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(FEEDBACK_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
     UART3_Init();
   #endif
-  #if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2)
+  #if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2)
     HAL_UART_Receive_DMA(&huart2, (uint8_t *)rx_buffer_L, sizeof(rx_buffer_L));
     UART_DisableRxErrors(&huart2);
   #endif
-  #if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3)
+  #if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
     HAL_UART_Receive_DMA(&huart3, (uint8_t *)rx_buffer_R, sizeof(rx_buffer_R));
     UART_DisableRxErrors(&huart3);
   #endif
@@ -404,8 +412,8 @@ void Input_Init(void) {
   * @param  huart: UART handle.
   * @retval None
   */
-#if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2) || \
-    defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3)
+#if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2) || \
+    defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
 void UART_DisableRxErrors(UART_HandleTypeDef *huart)
 {  
   CLEAR_BIT(huart->Instance->CR1, USART_CR1_PEIE);    /* Disable PE (Parity Error) interrupts */  
@@ -979,6 +987,12 @@ void handleTimeout(void) {
         timeoutFlgSerial = timeoutFlgSerial_L;          // Report Timeout only on the Primary Input
       #endif
     #endif
+    #if defined(GYRO_CORRECTION_SERIAL_USART2)
+      if (timeoutCntSerialGyro_L++ >= SERIAL_TIMEOUT) {
+        timeoutFlgSerialGyro_L = 1;
+        timeoutCntSerialGyro_L = SERIAL_TIMEOUT;
+      }
+    #endif
 
     #if defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3)
       if (timeoutCntSerial_R++ >= SERIAL_TIMEOUT) {     // Timeout qualification
@@ -1001,6 +1015,12 @@ void handleTimeout(void) {
       #if (defined(CONTROL_SERIAL_USART3) && CONTROL_SERIAL_USART3 == 0) || (defined(SIDEBOARD_SERIAL_USART3) && SIDEBOARD_SERIAL_USART3 == 0 && !defined(VARIANT_HOVERBOARD))
         timeoutFlgSerial = timeoutFlgSerial_R;          // Report Timeout only on the Primary Input
       #endif
+    #endif
+    #if defined(GYRO_CORRECTION_SERIAL_USART3)
+      if (timeoutCntSerialGyro_R++ >= SERIAL_TIMEOUT) {
+        timeoutFlgSerialGyro_R = 1;
+        timeoutCntSerialGyro_R = SERIAL_TIMEOUT;
+      }
     #endif
 
     #if defined(SIDEBOARD_SERIAL_USART2) && defined(SIDEBOARD_SERIAL_USART3)
@@ -1090,7 +1110,7 @@ void readCommand(void) {
  */
 void usart2_rx_check(void)
 {
-  #if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2)  
+  #if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2)
   static uint32_t old_pos;
   uint32_t pos;
   pos = rx_buffer_L_len - __HAL_DMA_GET_COUNTER(huart2.hdmarx);         // Calculate current position in buffer
@@ -1107,7 +1127,7 @@ void usart2_rx_check(void)
   }
   #endif // DEBUG_SERIAL_USART2
 
-  #ifdef CONTROL_SERIAL_USART2
+  #if defined(CONTROL_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2)
   uint8_t *ptr;	
   if (pos != old_pos) {                                                 // Check change in received data
     ptr = (uint8_t *)&commandL_raw;                                     // Initialize the pointer with command_raw address
@@ -1123,7 +1143,7 @@ void usart2_rx_check(void)
       usart_process_command(&commandL_raw, &commandL, 2);               // Process data
     }
   }
-  #endif // CONTROL_SERIAL_USART2
+  #endif // CONTROL_SERIAL_USART2 || GYRO_CORRECTION_SERIAL_USART2
 
   #ifdef SIDEBOARD_SERIAL_USART2
   uint8_t *ptr;	
@@ -1143,7 +1163,7 @@ void usart2_rx_check(void)
   }
   #endif // SIDEBOARD_SERIAL_USART2
 
-  #if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2)
+  #if defined(DEBUG_SERIAL_USART2) || defined(CONTROL_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2)
   old_pos = pos;                                                        // Update old position
   if (old_pos == rx_buffer_L_len) {                                     // Check and manually update if we reached end of buffer
     old_pos = 0;
@@ -1158,7 +1178,7 @@ void usart2_rx_check(void)
  */
 void usart3_rx_check(void)
 {
-  #if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3)
+  #if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
   static uint32_t old_pos;
   uint32_t pos;  
   pos = rx_buffer_R_len - __HAL_DMA_GET_COUNTER(huart3.hdmarx);         // Calculate current position in buffer
@@ -1175,7 +1195,7 @@ void usart3_rx_check(void)
   }
   #endif // DEBUG_SERIAL_USART3
 
-  #ifdef CONTROL_SERIAL_USART3
+  #if defined(CONTROL_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
   uint8_t *ptr;
   if (pos != old_pos) {                                                 // Check change in received data
     ptr = (uint8_t *)&commandR_raw;                                     // Initialize the pointer with command_raw address
@@ -1191,7 +1211,7 @@ void usart3_rx_check(void)
       usart_process_command(&commandR_raw, &commandR, 3);               // Process data
     }
   }
-  #endif // CONTROL_SERIAL_USART3
+  #endif // CONTROL_SERIAL_USART3 || GYRO_CORRECTION_SERIAL_USART3
 
   #ifdef SIDEBOARD_SERIAL_USART3
   uint8_t *ptr;
@@ -1211,7 +1231,7 @@ void usart3_rx_check(void)
   }
   #endif // SIDEBOARD_SERIAL_USART3
 
-  #if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3)
+  #if defined(DEBUG_SERIAL_USART3) || defined(CONTROL_SERIAL_USART3) || defined(SIDEBOARD_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
   old_pos = pos;                                                        // Update old position
   if (old_pos == rx_buffer_R_len) {                                     // Check and manually update if we reached end of buffer
     old_pos = 0;
@@ -1265,7 +1285,7 @@ void usart_process_debug(uint8_t *userCommand, uint32_t len)
  * Process command Rx data
  * - if the command_in data is valid (correct START_FRAME and checksum) copy the command_in to command_out
  */
-#if defined(CONTROL_SERIAL_USART2) || defined(CONTROL_SERIAL_USART3)
+#if defined(CONTROL_SERIAL_USART2) || defined(CONTROL_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
 void usart_process_command(SerialCommand *command_in, SerialCommand *command_out, uint8_t usart_idx)
 {
   #ifdef CONTROL_IBUS
@@ -1301,15 +1321,55 @@ void usart_process_command(SerialCommand *command_in, SerialCommand *command_out
         timeoutFlgSerial_L = 0;         // Clear timeout flag
         timeoutCntSerial_L = 0;         // Reset timeout counter
         #endif
+        #ifdef GYRO_CORRECTION_SERIAL_USART2
+        timeoutFlgSerialGyro_L = 0;
+        timeoutCntSerialGyro_L = 0;
+        #endif
       } else if (usart_idx == 3) {      // Sideboard USART3
         #ifdef CONTROL_SERIAL_USART3
         timeoutFlgSerial_R = 0;         // Clear timeout flag
         timeoutCntSerial_R = 0;         // Reset timeout counter
         #endif
+        #ifdef GYRO_CORRECTION_SERIAL_USART3
+        timeoutFlgSerialGyro_R = 0;
+        timeoutCntSerialGyro_R = 0;
+        #endif
       }
     }
   }
   #endif
+}
+#endif
+
+#if defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
+uint8_t gyroCorrectionIsActive(void)
+{
+  #if defined(GYRO_CORRECTION_SERIAL_USART2)
+    if (!timeoutFlgSerialGyro_L && commandL.speed > 0) {
+      return 1;
+    }
+  #endif
+  #if defined(GYRO_CORRECTION_SERIAL_USART3)
+    if (!timeoutFlgSerialGyro_R && commandR.speed > 0) {
+      return 1;
+    }
+  #endif
+  return 0;
+}
+
+int16_t gyroCorrectionGet(void)
+{
+  if (!gyroCorrectionIsActive()) {
+    return 0;
+  }
+
+  #if defined(GYRO_CORRECTION_SERIAL_USART2)
+    return CLAMP(commandL.steer, -GYRO_CORRECTION_MAX, GYRO_CORRECTION_MAX);
+  #endif
+  #if defined(GYRO_CORRECTION_SERIAL_USART3)
+    return CLAMP(commandR.steer, -GYRO_CORRECTION_MAX, GYRO_CORRECTION_MAX);
+  #endif
+  return 0;
 }
 #endif
 

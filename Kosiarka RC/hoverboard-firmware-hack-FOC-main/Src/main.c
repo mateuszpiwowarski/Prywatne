@@ -327,6 +327,11 @@ int main(void) {
       filtLowPass32(speedRateFixdt >> 4, FILTER, &speedFixdt);
       steer = (int16_t)(steerFixdt >> 16);  // convert fixed-point to integer
       speed = (int16_t)(speedFixdt >> 16);  // convert fixed-point to integer
+      #if defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
+        if (gyroCorrectionIsActive()) {
+          steer = CLAMP(steer + gyroCorrectionGet(), -1000, 1000);
+        }
+      #endif
 
       // ####### VARIANT_HOVERCAR #######
       #ifdef VARIANT_HOVERCAR
