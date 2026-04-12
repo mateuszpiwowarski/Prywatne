@@ -30,11 +30,16 @@ static const int X9C_OUTPUT_MAX_STEP = 85;
 // Skala tylko do wyswietlania procentow na TFT. Ustawiona tak, aby realne maksimum pracy pokazywalo 100%.
 static const int X9C_DISPLAY_FULL_SCALE_STEP = 27;
 static const int RC_INPUT_PIN = 27;
+static const int RC_RELAY_INPUT_PIN = 4;
+static const int RELAY_OUTPUT_PIN = 13;
+static const bool RELAY_ACTIVE_HIGH = true;
 static const uint16_t RC_PULSE_VALID_MIN_US = 900;
 static const uint16_t RC_PULSE_VALID_MAX_US = 2100;
 static const uint16_t RC_PULSE_MIN_US = 1000;
 static const uint16_t RC_PULSE_MAX_US = 2000;
 static const uint16_t RC_PULSE_ZERO_THRESHOLD_US = 1050;
+static const uint16_t RC_SWITCH_ON_THRESHOLD_US = 1600;
+static const uint16_t RC_SWITCH_OFF_THRESHOLD_US = 1400;
 // Zakres RC, na ktory rozciagamy caly bezpieczny zakres potencjometru X9C.
 static const uint16_t RC_PULSE_X9C_ACTIVE_MIN_US = 1000;
 static const uint16_t RC_PULSE_X9C_ACTIVE_MAX_US = 4000;
@@ -48,8 +53,8 @@ static const uint32_t GYRO_MODE_PULSE_READ_TIMEOUT_US = 30000;
 static const uint16_t GYRO_MODE_ON_THRESHOLD_US = 1600;
 static const uint16_t GYRO_MODE_OFF_THRESHOLD_US = 1400;
 static const uint16_t GYRO_MODE_READ_INTERVAL_MS = 100;
-static const uint16_t GYRO_STEER_DEADBAND_US = 80;  // martwa strefa prawej gałki w trybie gyro
-static const float GYRO_HEADING_ADJUST_RATE_DPS = 40.0f;  // maksymalna zmiana celu kursu na sekundę
+static const uint16_t GYRO_STEER_DEADBAND_US = 80;
+static const float GYRO_HEADING_ADJUST_RATE_DPS = 40.0f;
 
 // BMI160 - zyroskop do prostego trybu "heading hold"
 static const int BMI160_SDA_PIN = 21;
@@ -58,16 +63,14 @@ static const uint32_t BMI160_I2C_CLOCK_HZ = 400000;
 static const uint8_t BMI160_I2C_ADDR_PRIMARY = 0x69;
 static const uint8_t BMI160_I2C_ADDR_SECONDARY = 0x68;
 static const uint16_t BMI160_CALIBRATION_SAMPLES = 400;
-static const float BMI160_GYRO_Z_LSB_PER_DPS = 131.2f;   // zakres +/-250 dps
+static const float BMI160_GYRO_Z_LSB_PER_DPS = 131.2f;
 static const float BMI160_GYRO_Z_DEADBAND_DPS = 0.15f;
-static const float HEADING_HOLD_P_GAIN = 2.5f;           // przyszla korekta do sterowania
+static const float HEADING_HOLD_P_GAIN = 2.5f;
 static const float HEADING_HOLD_MAX_CORRECTION = 60.0f;
 static const float HEADING_DISPLAY_JITTER_DEG = 0.05f;
 
 // Temperatura
-static const int TEMP_PIN = 35;
-static const float TEMP_THRESHOLD = 80.0;
-static const float TEMP_HYSTERESIS = 5.0;
+static const uint8_t TEMP_SENSOR_COUNT = 3;
 static const uint32_t STATUS_PRINT_INTERVAL_MS = 500;
 static const uint16_t TFT_UPDATE_INTERVAL_MS = 250;
 static const uint16_t TEMP_SAMPLE_INTERVAL_MS = 500;
@@ -76,8 +79,11 @@ static const uint8_t NTC_SAMPLE_COUNT = 8;
 static const float NTC_R25 = 10000.0f;               // NTC 10k przy 25 C
 static const float NTC_BETA = 3950.0f;               // Zmien, jesli Twoj NTC ma inny wspolczynnik B
 static const float NTC_SERIES_RESISTOR = 10000.0f;   // Rezystor dzielnika 10k
-static const float TEMP_CALIBRATION_OFFSET_C = -5.0f;
-static const bool NTC_TO_GND = true;                 // true: NTC do GND, rezystor 10k do 3.3V
+static const float ADC_REFERENCE_VOLTAGE = 3.3f;
+static const float TEMP_CALIBRATION_OFFSET_C = 2.0f;
+static const float NTC_ADC_CLAMP_MIN = 1.0f;
+static const float NTC_ADC_CLAMP_MAX = 3299.0f;
+static const bool NTC_TO_GND = false;                // false: NTC do 3.3V, rezystor 10k do GND
 static const bool DIAGNOSTIC_DISPLAY_ONLY = false;
 static const int TFT_BL_PIN = 22;
 static const bool TFT_BL_INVERT = false;
@@ -115,6 +121,20 @@ struct GyroHoldState {
     uint32_t lastSwitchReadMs = 0;
 };
 
+struct TempSensorConfig {
+    const char* label;
+    int pin;
+    float shutdownThresholdC;
+    float hysteresisC;
+};
+
+static const TempSensorConfig TEMP_SENSORS[TEMP_SENSOR_COUNT] = {
+    {"T1_E", 35, 85.0f, 5.0f},
+    // GPIO33 i GPIO32 sa stabilniejszymi wejsciami ADC niz piny strapujace GPIO2/GPIO0.
+    {"T2_SE", 33, 55.0f, 5.0f},
+    {"T2S", 32, 55.0f, 5.0f},
+};
+
 // Zmienne stanu
 uint32_t currentFreq = 0;
 uint8_t currentDutyPercent = 50;
@@ -134,7 +154,9 @@ bool startupMessageShown = false;
 
 // Zmienne temperatury
 bool thermalShutdownActive = false;
-uint16_t lastTempAdcRaw = 0;
+uint16_t lastTempAdcRaw[TEMP_SENSOR_COUNT] = {0};
+bool relayEnabled = false;
+int thermalShutdownSensorIndex = -1;
 GyroHoldState gyroHold;
 
 void printBootStage(const char* message) {
@@ -156,6 +178,18 @@ String formatFrequencyLabel(uint32_t freqHz) {
     return String(freqKHz, 1) + "kHz";
 }
 
+bool isTemperatureValid(float tempC) {
+    return !isnan(tempC) && tempC > -100.0f && tempC < 200.0f;
+}
+
+String formatTemperatureLabel(float tempC) {
+    if (!isTemperatureValid(tempC)) {
+        return "--.-C";
+    }
+
+    return String(tempC, 1) + "C";
+}
+
 // =========================
 // FUNKCJE - Obsługa wyświetlacza
 // =========================
@@ -171,7 +205,7 @@ void tftClearScreen() {
     tft.fillScreen(TFT_BG_COLOR);
 }
 
-void tftShowDiagnosticScreen(float temp, uint32_t color, const char* colorName) {
+void tftShowDiagnosticScreen(const float temps[], uint32_t color, const char* colorName) {
     tft.fillScreen(color);
     tft.setTextSize(2);
     tft.setTextColor(TFT_TEXT_COLOR, color);
@@ -183,47 +217,49 @@ void tftShowDiagnosticScreen(float temp, uint32_t color, const char* colorName) 
     tft.print("Kolor: ");
     tft.println(colorName);
 
-    tft.setCursor(8, 52);
-    tft.print("Temp: ");
-    tft.print(temp, 1);
-    tft.println(" C");
+    for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+        tft.setCursor(8, 52 + (i * 16));
+        tft.print(TEMP_SENSORS[i].label);
+        tft.print(": ");
+        tft.print(isTemperatureValid(temps[i]) ? String(temps[i], 1) : String("--.-"));
+        tft.print("C ");
+        tft.print(lastTempAdcRaw[i]);
+    }
 
-    tft.setCursor(8, 68);
-    tft.print("ADC TMP: ");
-    tft.println(lastTempAdcRaw);
-
-    tft.setCursor(8, 84);
+    tft.setCursor(8, 104);
     tft.println("PWM/X9C wylaczone");
 
-    tft.setCursor(8, 100);
+    tft.setCursor(8, 120);
     tft.println("GPIO TFT: CS5 DC16 RST17");
 
-    tft.setCursor(8, 116);
+    tft.setCursor(8, 136);
     tft.println("Jesli nic nie widac:");
 
-    tft.setCursor(8, 132);
+    tft.setCursor(8, 152);
     tft.println("1. zly driver TFT");
 
-    tft.setCursor(8, 148);
+    tft.setCursor(8, 168);
     tft.println("2. brak podswietlenia");
 
-    tft.setCursor(8, 164);
+    tft.setCursor(8, 184);
     tft.println("3. zle polaczenie");
 }
 
-void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputStep, float temp, uint32_t pwmFreq, bool displayStartupUnlocked, bool displaySweeping) {
+void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputStep, const float temps[], float maxTemp, uint16_t relayPulseUs, bool relayState, uint32_t pwmFreq, bool displayStartupUnlocked, bool displaySweeping) {
     static bool layoutDrawn = false;
     static int lastInputPct = -1;
     static int lastInputPulseUs = -1;
     static int lastOutputPct = -1;
     static int lastOutputStep = -1;
-    static int lastTempDeciC = -10000;
-    static int lastTempBar = -1;
+    static int lastTempDeciC[TEMP_SENSOR_COUNT] = {-10000, -10000, -10000};
+    static int lastMaxTempDeciC = -10000;
     static bool lastThermalShutdown = false;
     static uint32_t lastPwmFreq = 0xFFFFFFFF;
     static int lastStartupUnlocked = -1;
     static int lastSweeping = -1;
     static int lastStartState = -1;
+    static int lastRelayPulseUs = -1;
+    static int lastRelayState = -1;
     static int lastGyroState = -1;
     static int lastGyroSwitchState = -1;
     static int lastHeadingDeciDeg = 100000;
@@ -241,10 +277,16 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     const int outputPct = min(100, (outputStep * 100) / X9C_DISPLAY_FULL_SCALE_STEP);
     const int barIn = (112 * inputPct) / 100;
     const int barOut = (112 * outputPct) / 100;
-    const float tempClamped = min(max(temp, 0.0f), TEMP_THRESHOLD);
-    const int tempBar = (int)((200.0f * tempClamped) / TEMP_THRESHOLD);
-    const int tempDeciC = (int)roundf(temp * 10.0f);
-    const int startState = thermalShutdownActive ? 0 : (displayStartupUnlocked ? 2 : 1);
+    int tempDeciC[TEMP_SENSOR_COUNT];
+    bool tempChanged = false;
+    for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+        tempDeciC[i] = (int)roundf(temps[i] * 10.0f);
+        if (tempDeciC[i] != lastTempDeciC[i]) {
+            tempChanged = true;
+        }
+    }
+    const int maxTempDeciC = isTemperatureValid(maxTemp) ? (int)roundf(maxTemp * 10.0f) : -10000;
+    const int startState = thermalShutdownActive ? 0 : ((displayStartupUnlocked && relayState) ? 2 : 1);
     const char* startLabel = (startState == 0) ? "OFF" : ((startState == 1) ? "WAIT" : "GO");
     const uint16_t startColor = (startState == 0) ? TFT_RED : ((startState == 1) ? startWaitColor : TFT_GREEN);
     const int gyroState = gyroHold.sensorFound ? (gyroHold.holdEnabled ? 2 : 1) : 0;
@@ -260,13 +302,13 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
         tft.setTextColor(TFT_TEXT_COLOR, panel);
         tft.drawString("STEROWANIE SILNIKA", 16, 13, 2);
 
-        tft.fillRoundRect(8, 40, 128, 86, 12, panel);
-        tft.drawRoundRect(8, 40, 128, 86, 12, accentIn);
+        tft.fillRoundRect(8, 40, 128, 72, 12, panel);
+        tft.drawRoundRect(8, 40, 128, 72, 12, accentIn);
         tft.setTextColor(textDim, panel);
         tft.drawString("WEJSCIE", 18, 50, 2);
 
-        tft.fillRoundRect(144, 40, 128, 86, 12, panel);
-        tft.drawRoundRect(144, 40, 128, 86, 12, accentOut);
+        tft.fillRoundRect(144, 40, 128, 72, 12, panel);
+        tft.drawRoundRect(144, 40, 128, 72, 12, accentOut);
         tft.setTextColor(textDim, panel);
         tft.drawString("WYJSCIE", 154, 50, 2);
 
@@ -277,76 +319,90 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     }
 
     if (inputPct != lastInputPct || inputPulseUs != lastInputPulseUs) {
-        tft.fillRect(18, 70, 84, 26, panel);
+        tft.fillRect(18, 68, 94, 22, panel);
         tft.setTextColor(TFT_TEXT_COLOR, panel);
-        tft.drawString(String(inputPct), 18, 74, 4);
-        tft.drawString("%", 98, 84, 2);
-        tft.fillRect(18, 104, 100, 12, panel);
+        tft.drawString(String(inputPct), 18, 72, 2);
+        tft.drawString("%", 54, 72, 2);
+        tft.fillRect(18, 92, 112, 16, panel);
         tft.setTextColor(textDim, panel);
         if (inputPulseUs == 0) {
-            tft.drawString("RC BRAK", 18, 104, 2);
+            tft.drawString("BRAK RC", 18, 93, 2);
         } else {
-            tft.drawString("RC " + String(inputPulseUs) + "us", 18, 104, 2);
+            tft.drawString("RC " + String(inputPulseUs) + "us", 18, 93, 2);
         }
-        tft.fillRoundRect(18, 118, 112, 6, 3, panelSoft);
+        tft.fillRoundRect(18, 106, 112, 4, 2, panelSoft);
         if (barIn > 0) {
-            tft.fillRoundRect(18, 118, barIn, 6, 3, accentIn);
+            tft.fillRoundRect(18, 106, barIn, 4, 2, accentIn);
         }
         lastInputPct = inputPct;
         lastInputPulseUs = inputPulseUs;
     }
 
     if (outputPct != lastOutputPct || outputStep != lastOutputStep) {
-        tft.fillRect(154, 70, 84, 26, panel);
+        tft.fillRect(154, 68, 94, 22, panel);
         tft.setTextColor(TFT_TEXT_COLOR, panel);
-        tft.drawString(String(outputPct), 154, 74, 4);
-        tft.drawString("%", 234, 84, 2);
-        tft.fillRect(154, 104, 100, 12, panel);
+        tft.drawString(String(outputPct), 154, 72, 2);
+        tft.drawString("%", 190, 72, 2);
+        tft.fillRect(154, 92, 112, 16, panel);
         tft.setTextColor(textDim, panel);
-        tft.drawString("STEP " + String(outputStep), 154, 104, 2);
-        tft.fillRoundRect(154, 118, 112, 6, 3, panelSoft);
+        tft.drawString("ST " + String(outputStep), 154, 93, 2);
+        tft.fillRoundRect(154, 106, 112, 4, 2, panelSoft);
         if (barOut > 0) {
-            tft.fillRoundRect(154, 118, barOut, 6, 3, accentOut);
+            tft.fillRoundRect(154, 106, barOut, 4, 2, accentOut);
         }
         lastOutputPct = outputPct;
         lastOutputStep = outputStep;
     }
 
-    if (tempDeciC != lastTempDeciC || tempBar != lastTempBar || thermalShutdownActive != lastThermalShutdown) {
-        tft.fillRoundRect(8, 138, 264, 66, 12, panel);
-        tft.drawRoundRect(8, 138, 264, 66, 12, accentTemp);
+    if (tempChanged || maxTempDeciC != lastMaxTempDeciC || thermalShutdownActive != lastThermalShutdown || relayPulseUs != lastRelayPulseUs || (int)relayState != lastRelayState) {
+        tft.fillRoundRect(8, 120, 264, 84, 12, panel);
+        tft.drawRoundRect(8, 120, 264, 84, 12, accentTemp);
         tft.setTextColor(textDim, panel);
-        tft.drawString("TEMPERATURA", 18, 148, 2);
+        tft.drawString("TEMPERATURY", 18, 126, 2);
         tft.setTextColor(accentTemp, panel);
-        tft.drawString(String(temp, 1) + "C", 18, 166, 4);
-        tft.fillRoundRect(18, 190, 200, 7, 3, panelSoft);
-        if (tempBar > 0) {
-            tft.fillRoundRect(18, 190, tempBar, 7, 3, accentTemp);
+        tft.drawString(String(TEMP_SENSORS[0].label) + " " + formatTemperatureLabel(temps[0]), 18, 146, 2);
+        tft.drawString(String(TEMP_SENSORS[1].label) + " " + formatTemperatureLabel(temps[1]), 18, 164, 2);
+        tft.drawString(String(TEMP_SENSORS[2].label) + " " + formatTemperatureLabel(temps[2]), 18, 182, 2);
+        tft.setTextColor(TFT_TEXT_COLOR, panel);
+        tft.drawString("MAX " + formatTemperatureLabel(maxTemp), 150, 146, 2);
+        tft.drawString(relayState ? "RELAY ON" : "RELAY OFF", 150, 164, 2);
+        if (relayPulseUs == 0) {
+            tft.drawString("SW BRAK", 150, 182, 2);
+        } else {
+            tft.drawString("SW " + String(relayPulseUs) + "us", 150, 182, 2);
         }
         tft.setTextColor(thermalShutdownActive ? TFT_ALERT_COLOR : TFT_OK_COLOR, panel);
-        tft.drawString(thermalShutdownActive ? "PRZEGRZANIE" : "OK", 220, 172, 2);
-        lastTempDeciC = tempDeciC;
-        lastTempBar = tempBar;
+        if (thermalShutdownActive && thermalShutdownSensorIndex >= 0) {
+            tft.drawString(String("HOT ") + TEMP_SENSORS[thermalShutdownSensorIndex].label, 186, 126, 2);
+        } else {
+            tft.drawString("OK", 226, 126, 2);
+        }
+        for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+            lastTempDeciC[i] = tempDeciC[i];
+        }
+        lastMaxTempDeciC = maxTempDeciC;
         lastThermalShutdown = thermalShutdownActive;
+        lastRelayPulseUs = relayPulseUs;
+        lastRelayState = relayState ? 1 : 0;
     }
 
     if (pwmFreq != lastPwmFreq || (int)displayStartupUnlocked != lastStartupUnlocked || (int)displaySweeping != lastSweeping || startState != lastStartState) {
-        tft.fillRoundRect(8, 212, 264, 20, 8, panel);
-        tft.drawRoundRect(8, 212, 264, 20, 8, panelSoft);
+        tft.fillRoundRect(8, 212, 264, 22, 8, panel);
+        tft.drawRoundRect(8, 212, 264, 22, 8, panelSoft);
         tft.setTextColor(textDim, panel);
         if (ENABLE_PWM_OUTPUT) {
-            tft.drawString("PWM " + formatFrequencyLabel(pwmFreq), 14, 216, 2);
-            tft.drawString("START", 100, 216, 2);
+            tft.drawString("PWM " + formatFrequencyLabel(pwmFreq), 14, 217, 2);
+            tft.drawString("START", 100, 217, 2);
             tft.setTextColor(startColor, panel);
-            tft.drawString(startLabel, 142, 216, 2);
+            tft.drawString(startLabel, 142, 217, 2);
         } else {
-            tft.drawString("X9C RC", 14, 216, 2);
-            tft.drawString("START", 100, 216, 2);
+            tft.drawString("X9C RC", 14, 217, 2);
+            tft.drawString("START", 100, 217, 2);
             tft.setTextColor(startColor, panel);
-            tft.drawString(startLabel, 142, 216, 2);
+            tft.drawString(startLabel, 142, 217, 2);
         }
         tft.setTextColor(textDim, panel);
-        tft.drawString(ENABLE_PWM_OUTPUT ? (displaySweeping ? "SWEEP" : "MANUAL") : "DIRECT", 206, 216, 2);
+        tft.drawString(ENABLE_PWM_OUTPUT ? (displaySweeping ? "SWEEP" : "MANUAL") : "DIRECT", 206, 217, 2);
         lastPwmFreq = pwmFreq;
         lastStartupUnlocked = displayStartupUnlocked ? 1 : 0;
         lastSweeping = displaySweeping ? 1 : 0;
@@ -379,7 +435,7 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
 // FUNKCJE
 // =========================
 void x9cSetStep(uint8_t targetStep);
-void printStatus(uint16_t inputPulseUs, uint8_t targetStep, float temp);
+void printStatus(uint16_t inputPulseUs, uint8_t targetStep, const float temps[], float maxTemp, uint16_t relayPulseUs, bool relayState);
 uint16_t readPulseUsFromPin(int pin, uint32_t timeoutUs);
 uint16_t readGyroModePulseUs();
 void updateGyroModeSwitch();
@@ -398,14 +454,19 @@ uint32_t dutyPercentToRaw(uint8_t percent, int resolutionBits) {
 void stopPwm() {
     if (ENABLE_PWM_OUTPUT) {
         ledcWrite(PWM_CHANNEL, 0);
+        digitalWrite(PWM_PIN, LOW);
     }
-    digitalWrite(PWM_PIN, LOW);
     currentFreq = 0;
 }
 
 void resetControlToSafeState() {
     x9cSetStep(0);
     stopPwm();
+}
+
+void setRelayState(bool enabled) {
+    relayEnabled = enabled;
+    digitalWrite(RELAY_OUTPUT_PIN, (enabled == RELAY_ACTIVE_HIGH) ? HIGH : LOW);
 }
 
 // ========== FUNKCJE X9C103S ==========
@@ -489,6 +550,16 @@ uint16_t readGyroModePulseUs() {
     return readPulseUsFromPin(GYRO_MODE_RC_PIN, GYRO_MODE_PULSE_READ_TIMEOUT_US);
 }
 
+uint16_t readRelaySwitchPulseUs() {
+    uint32_t pulseUs = pulseIn(RC_RELAY_INPUT_PIN, HIGH, RC_PULSE_READ_TIMEOUT_US);
+
+    if (!hasValidReceiverSignal((uint16_t)pulseUs)) {
+        return 0;
+    }
+
+    return (uint16_t)pulseUs;
+}
+
 uint8_t inputPulseToX9cStep(uint16_t pulseUs) {
     if (!hasValidReceiverSignal(pulseUs) || pulseUs <= RC_PULSE_ZERO_THRESHOLD_US) {
         return 0;
@@ -546,61 +617,105 @@ bool isInputAtZero(uint16_t pulseUs) {
     return hasValidReceiverSignal(pulseUs) && pulseUs <= RC_PULSE_ZERO_THRESHOLD_US;
 }
 
-float readTemperature() {
-    uint32_t adcSum = 0;
+float readTemperatureSensor(uint8_t sensorIndex) {
+    uint32_t adcRawSum = 0;
+    uint32_t voltageMvSum = 0;
     for (uint8_t i = 0; i < NTC_SAMPLE_COUNT; i++) {
-        adcSum += analogRead(TEMP_PIN);
+        adcRawSum += analogRead(TEMP_SENSORS[sensorIndex].pin);
+        voltageMvSum += analogReadMilliVolts(TEMP_SENSORS[sensorIndex].pin);
     }
 
-    float adc = (float)adcSum / NTC_SAMPLE_COUNT;
-    lastTempAdcRaw = (uint16_t)adc;
-    if (adc <= 0.0f || adc >= 4095.0f) {
-        return 999.0;
-    }
+    float adcRaw = (float)adcRawSum / NTC_SAMPLE_COUNT;
+    lastTempAdcRaw[sensorIndex] = (uint16_t)adcRaw;
 
-    float voltage = adc * 3.3f / 4095.0f;
-    if (voltage <= 0.0f || voltage >= 3.3f) {
-        return 999.0;
-    }
+    float voltageMv = (float)voltageMvSum / NTC_SAMPLE_COUNT;
+    // Liczymy temperature z faktycznego napiecia na dzielniku.
+    // Dla NTC 10k + rezystor 10k oczekujemy okolo 1.65 V przy 25 C.
+    voltageMv = constrain(voltageMv, NTC_ADC_CLAMP_MIN, NTC_ADC_CLAMP_MAX);
+    float voltage = voltageMv / 1000.0f;
 
     float resistance;
     if (NTC_TO_GND) {
-        resistance = NTC_SERIES_RESISTOR * (voltage / (3.3f - voltage));
+        resistance = NTC_SERIES_RESISTOR * (voltage / (ADC_REFERENCE_VOLTAGE - voltage));
     } else {
-        resistance = NTC_SERIES_RESISTOR * ((3.3f - voltage) / voltage);
+        resistance = NTC_SERIES_RESISTOR * ((ADC_REFERENCE_VOLTAGE - voltage) / voltage);
     }
 
     if (!(resistance > 0.0f)) {
-        return 999.0;
+        return NAN;
     }
 
     float tempK = 1.0f / (1.0f / 298.15f + (1.0f / NTC_BETA) * log(resistance / NTC_R25));
     return (tempK - 273.15f) + TEMP_CALIBRATION_OFFSET_C;
 }
 
-void updateThermalProtection(float temp) {
-    if (!thermalShutdownActive && temp >= TEMP_THRESHOLD) {
-        thermalShutdownActive = true;
-        startupUnlocked = false;
-        startupMessageShown = false;
-        resetControlToSafeState();
+void readAllTemperatures(float temps[]) {
+    for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+        temps[i] = readTemperatureSensor(i);
+    }
+}
 
-        Serial.print("Przegrzanie! Temp: ");
-        Serial.print(temp);
-        Serial.println(" C. Wyjscie ustawione na 0.");
-        Serial.println("Po schlodzeniu ustaw potencjometr na 0, aby wznowic prace.");
-        return;
+float getMaxTemperature(const float temps[]) {
+    float maxTemp = NAN;
+    for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+        if (!isTemperatureValid(temps[i])) {
+            continue;
+        }
+
+        if (!isTemperatureValid(maxTemp) || temps[i] > maxTemp) {
+            maxTemp = temps[i];
+        }
+    }
+    return maxTemp;
+}
+
+void updateThermalProtection(const float temps[]) {
+    if (!thermalShutdownActive) {
+        for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+            if (!isTemperatureValid(temps[i])) {
+                continue;
+            }
+
+            if (temps[i] >= TEMP_SENSORS[i].shutdownThresholdC) {
+                thermalShutdownActive = true;
+                thermalShutdownSensorIndex = i;
+                startupUnlocked = false;
+                startupMessageShown = false;
+                resetControlToSafeState();
+                setRelayState(false);
+
+                Serial.print("Przegrzanie! ");
+                Serial.print(TEMP_SENSORS[i].label);
+                Serial.print("=");
+                Serial.print(temps[i], 1);
+                Serial.print(" C. Limit=");
+                Serial.print(TEMP_SENSORS[i].shutdownThresholdC, 1);
+                Serial.println(" C. Wyjscie ustawione na 0.");
+                Serial.println("Po schlodzeniu ustaw potencjometr na 0, aby wznowic prace.");
+                return;
+            }
+        }
     }
 
-    if (thermalShutdownActive && temp <= (TEMP_THRESHOLD - TEMP_HYSTERESIS)) {
-        thermalShutdownActive = false;
-        Serial.print("Temperatura spadla do ");
-        Serial.print(temp);
-        Serial.println(" C. Zabezpieczenie termiczne zwolnione.");
+    if (thermalShutdownActive && thermalShutdownSensorIndex >= 0) {
+        const TempSensorConfig& shutdownSensor = TEMP_SENSORS[thermalShutdownSensorIndex];
+        const float releaseThreshold = shutdownSensor.shutdownThresholdC - shutdownSensor.hysteresisC;
+        if (isTemperatureValid(temps[thermalShutdownSensorIndex]) && temps[thermalShutdownSensorIndex] <= releaseThreshold) {
+            thermalShutdownActive = false;
+            Serial.print("Temperatura ");
+            Serial.print(shutdownSensor.label);
+            Serial.print(" spadla do ");
+            Serial.print(temps[thermalShutdownSensorIndex], 1);
+            Serial.print(" C. Zabezpieczenie termiczne zwolnione ponizej ");
+            Serial.print(releaseThreshold, 1);
+            Serial.println(" C.");
+            thermalShutdownSensorIndex = -1;
+        }
     }
 
     if (thermalShutdownActive) {
         resetControlToSafeState();
+        setRelayState(false);
     }
 }
 
@@ -814,7 +929,25 @@ void updateGyroHeadingHold() {
     gyroHold.correction = constrain(gyroHold.headingErrorDeg * HEADING_HOLD_P_GAIN, -HEADING_HOLD_MAX_CORRECTION, HEADING_HOLD_MAX_CORRECTION);
 }
 
-void printStatus(uint16_t inputPulseUs, uint8_t targetStep, float temp) {
+void updateRelayFromRc(uint16_t relayPulseUs) {
+    if (thermalShutdownActive || !startupUnlocked) {
+        setRelayState(false);
+        return;
+    }
+
+    if (!hasValidReceiverSignal(relayPulseUs)) {
+        setRelayState(false);
+        return;
+    }
+
+    if (relayPulseUs >= RC_SWITCH_ON_THRESHOLD_US) {
+        setRelayState(true);
+    } else if (relayPulseUs <= RC_SWITCH_OFF_THRESHOLD_US) {
+        setRelayState(false);
+    }
+}
+
+void printStatus(uint16_t inputPulseUs, uint8_t targetStep, const float temps[], float maxTemp, uint16_t relayPulseUs, bool relayState) {
     Serial.print("IN_RC=");
     if (inputPulseUs == 0) {
         Serial.print("NO_SIG");
@@ -826,14 +959,45 @@ void printStatus(uint16_t inputPulseUs, uint8_t targetStep, float temp) {
     Serial.print(targetStep);
     Serial.print(" OUT_STEP=");
     Serial.print(x9cCurrentStep);
-    Serial.print(" TEMP=");
-    Serial.print(temp, 1);
+    Serial.print(" T1_E=");
+    if (isTemperatureValid(temps[0])) {
+        Serial.print(temps[0], 1);
+    } else {
+        Serial.print("---.-");
+    }
+    Serial.print("C T2_SE=");
+    if (isTemperatureValid(temps[1])) {
+        Serial.print(temps[1], 1);
+    } else {
+        Serial.print("---.-");
+    }
+    Serial.print("C T2S=");
+    if (isTemperatureValid(temps[2])) {
+        Serial.print(temps[2], 1);
+    } else {
+        Serial.print("---.-");
+    }
+    Serial.print("C TMAX=");
+    if (isTemperatureValid(maxTemp)) {
+        Serial.print(maxTemp, 1);
+    } else {
+        Serial.print("---.-");
+    }
+    Serial.print("C RELAY_SW=");
+    if (relayPulseUs == 0) {
+        Serial.print("NO_SIG");
+    } else {
+        Serial.print(relayPulseUs);
+        Serial.print("us");
+    }
+    Serial.print(" RELAY=");
+    Serial.print(relayState ? "ON" : "OFF");
     if (ENABLE_PWM_OUTPUT) {
-        Serial.print("C PWM=");
+        Serial.print(" PWM=");
         Serial.print(currentFreq);
         Serial.print("Hz START=");
     } else {
-        Serial.print("C MODE=X9C START=");
+        Serial.print(" MODE=X9C START=");
     }
     Serial.print(startupUnlocked ? "ON" : "WAIT");
     Serial.print(" THERM=");
@@ -899,14 +1063,18 @@ void setup() {
     printBootStage("Init BL");
     initBacklight();
     analogReadResolution(12);
-    analogSetPinAttenuation(TEMP_PIN, ADC_11db);
+    for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+        analogSetPinAttenuation(TEMP_SENSORS[i].pin, ADC_11db);
+    }
     if (DIAGNOSTIC_DISPLAY_ONLY) {
         printBootStage("Tryb diagnostyczny TFT");
         printBootStage("Init TFT");
         tftInit();
         tftClearScreen();
         printBootStage("TFT gotowy");
-        tftShowDiagnosticScreen(readTemperature(), TFT_RED, "CZERWONY");
+        float diagTemps[TEMP_SENSOR_COUNT];
+        readAllTemperatures(diagTemps);
+        tftShowDiagnosticScreen(diagTemps, TFT_RED, "CZERWONY");
         Serial.println("[BOOT] Tryb diagnostyczny aktywny: PWM/X9C pominiete.");
         printBootStage("Setup zakonczony");
         return;
@@ -914,10 +1082,15 @@ void setup() {
     
     // Inicjalizacja pinów
     printBootStage("Init PWM");
-    pinMode(PWM_PIN, OUTPUT);
-    digitalWrite(PWM_PIN, LOW);
+    if (ENABLE_PWM_OUTPUT) {
+        pinMode(PWM_PIN, OUTPUT);
+        digitalWrite(PWM_PIN, LOW);
+    }
     pinMode(RC_INPUT_PIN, INPUT);
     pinMode(GYRO_MODE_RC_PIN, INPUT);
+    pinMode(RC_RELAY_INPUT_PIN, INPUT);
+    pinMode(RELAY_OUTPUT_PIN, OUTPUT);
+    setRelayState(false);
 
     // Inicjalizacja X9C103S
     printBootStage("Init X9C");
@@ -946,27 +1119,22 @@ void setup() {
     tftClearScreen();
     printBootStage("TFT gotowy");
     
-    tft.setTextColor(TFT_TEXT_COLOR, TFT_BG_COLOR);
-    tft.setTextSize(1);
-    tft.setCursor(10, 10);
-    tft.println("INICJALIZACJA...");
-    tft.setCursor(10, 35);
-    tft.println("Blokada startu aktywna");
-    tft.setCursor(10, 55);
-    tft.println("Ustaw potencjometr na 0");
-
     Serial.println("Blokada startu aktywna. Ustaw potencjometr na 0.");
     printBootStage("Setup zakonczony");
 }
 
 void loop() {
     static bool tempInitialized = false;
-    static float currentTemp = 0.0f;
-    static float displayTemp = 0.0f;
+    static float currentTemps[TEMP_SENSOR_COUNT] = {0.0f, 0.0f, 0.0f};
+    static float displayTemps[TEMP_SENSOR_COUNT] = {0.0f, 0.0f, 0.0f};
+    static float currentMaxTemp = 0.0f;
+    static float displayMaxTemp = 0.0f;
     static uint32_t lastTempSample = 0;
     static uint16_t displayInputPulseUs = 0;
     static uint8_t displayTargetStep = 0;
     static uint8_t displayOutputStep = 0;
+    static uint16_t displayRelayPulseUs = 0;
+    static bool displayRelayEnabled = false;
     static uint32_t displayPwmFreq = 0;
     static bool displayStartupUnlocked = false;
     static bool displaySweeping = true;
@@ -979,7 +1147,8 @@ void loop() {
         static uint8_t colorIndex = 0;
 
         if (millis() - lastDiagUpdate >= 1000) {
-            float temp = readTemperature();
+            float temps[TEMP_SENSOR_COUNT];
+            readAllTemperatures(temps);
             uint32_t color = TFT_BLACK;
             const char* colorName = "CZARNY";
 
@@ -1002,12 +1171,17 @@ void loop() {
                     break;
             }
 
-            tftShowDiagnosticScreen(temp, color, colorName);
+            tftShowDiagnosticScreen(temps, color, colorName);
             Serial.print("[DIAG] TFT kolor=");
             Serial.print(colorName);
-            Serial.print(" TEMP=");
-            Serial.print(temp, 1);
-            Serial.println("C");
+            for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+                Serial.print(" ");
+                Serial.print(TEMP_SENSORS[i].label);
+                Serial.print("=");
+                Serial.print(temps[i], 1);
+                Serial.print("C");
+            }
+            Serial.println();
 
             colorIndex = (colorIndex + 1) % 4;
             lastDiagUpdate = millis();
@@ -1018,6 +1192,7 @@ void loop() {
     }
 
     uint16_t inputPulseUs = readReceiverPulseUs();
+    uint16_t relayPulseUs = readRelaySwitchPulseUs();
     filteredInputPulseUs = smoothReceiverPulseUs(filteredInputPulseUs, inputPulseUs);
     uint8_t targetStep = inputPulseToX9cStep(filteredInputPulseUs);
     uint32_t now = millis();
@@ -1025,12 +1200,16 @@ void loop() {
     updateGyroHeadingHold();
 
     if (!tempInitialized || (now - lastTempSample >= TEMP_SAMPLE_INTERVAL_MS)) {
-        currentTemp = readTemperature();
-        updateThermalProtection(currentTemp);
+        readAllTemperatures(currentTemps);
+        currentMaxTemp = getMaxTemperature(currentTemps);
+        updateThermalProtection(currentTemps);
 
-        if (!tempInitialized || fabsf(currentTemp - displayTemp) >= TEMP_DISPLAY_CHANGE_THRESHOLD_C) {
-            displayTemp = currentTemp;
+        for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+            if (!tempInitialized || fabsf(currentTemps[i] - displayTemps[i]) >= TEMP_DISPLAY_CHANGE_THRESHOLD_C) {
+                displayTemps[i] = currentTemps[i];
+            }
         }
+        displayMaxTemp = getMaxTemperature(displayTemps);
 
         tempInitialized = true;
         lastTempSample = now;
@@ -1040,18 +1219,14 @@ void loop() {
 
     // Drukowanie statusu na UART
     if (millis() - lastStatusPrint >= STATUS_PRINT_INTERVAL_MS) {
-        printStatus(filteredInputPulseUs, targetStep, currentTemp);
+        printStatus(filteredInputPulseUs, targetStep, currentTemps, currentMaxTemp, relayPulseUs, relayEnabled);
         lastStatusPrint = millis();
     }
 
     if (!startupUnlocked) {
         resetControlToSafeState();
+        setRelayState(false);
         filteredInputPulseUs = hasValidReceiverSignal(inputPulseUs) ? inputPulseUs : 0;
-
-        if (thermalShutdownActive) {
-            delay(50);
-            return;
-        }
 
         if (isInputAtZero(inputPulseUs)) {
             startupUnlocked = true;
@@ -1077,12 +1252,14 @@ void loop() {
             }
             filteredInputPulseUs = 0;
             resetControlToSafeState();
+            setRelayState(false);
         } else {
             signalLossLatched = false;
             if (now - lastX9cStepUpdate >= X9C_STEP_UPDATE_INTERVAL_MS) {
                 x9cSetStep(limitX9cStepChange(x9cCurrentStep, targetStep));
                 lastX9cStepUpdate = now;
             }
+            updateRelayFromRc(relayPulseUs);
 
             if (ENABLE_PWM_OUTPUT && isSweeping) {
                 uint32_t elapsedTime = millis() - sweepStartTime;
@@ -1121,13 +1298,15 @@ void loop() {
         displayInputPulseUs = filteredInputPulseUs;
         displayTargetStep = targetStep;
         displayOutputStep = x9cCurrentStep;
+        displayRelayPulseUs = relayPulseUs;
+        displayRelayEnabled = relayEnabled;
         displayPwmFreq = currentFreq;
         displayStartupUnlocked = startupUnlocked;
         displaySweeping = isSweeping;
         lastTftUpdate = now;
     }
 
-    tftPrintStatus(displayInputPulseUs, displayTargetStep, displayOutputStep, displayTemp, displayPwmFreq, displayStartupUnlocked, displaySweeping);
+    tftPrintStatus(displayInputPulseUs, displayTargetStep, displayOutputStep, displayTemps, displayMaxTemp, displayRelayPulseUs, displayRelayEnabled, displayPwmFreq, displayStartupUnlocked, displaySweeping);
 
     if (Serial.available()) {
         String input = Serial.readStringUntil('\n');

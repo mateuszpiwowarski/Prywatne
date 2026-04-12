@@ -81,8 +81,10 @@ extern volatile int pwml;               // global variable for pwm left. -1000 t
 extern volatile int pwmr;               // global variable for pwm right. -1000 to 1000
 
 extern uint8_t enable;                  // global variable for motor enable
+extern uint8_t rcArmSwitchActive;       // RC arm switch state (e.g. iBUS CH5)
 
 extern int16_t batVoltage;              // global variable for battery voltage
+extern int16_t swc_value;               // global variable for SWC switch value
 
 #if defined(SIDEBOARD_SERIAL_USART2)
 extern SerialSideboard Sideboard_L;
@@ -161,6 +163,7 @@ static int16_t    speed;                // local variable for speed. -1000 to 10
 static uint32_t    buzzerTimer_prev = 0;
 static uint32_t    inactivity_timeout_counter;
 static MultipleTap MultipleTapBrake;    // define multiple tap functionality for the Brake pedal
+static uint8_t     rcArmSwitchPrev;
 
 static uint16_t rate = RATE; // Adjustable rate to support multiple drive modes on startup
 
@@ -255,8 +258,25 @@ int main(void) {
     calcAvgSpeed();                       // Calculate average measured speed: speedAvg, speedAvgAbs
 
     #ifndef VARIANT_TRANSPOTTER
+      if (!rcArmSwitchActive) {
+        if (enable != 0) {
+          enable = 0;
+          steerFixdt = speedFixdt = 0;
+          steerRateFixdt = speedRateFixdt = 0;
+          #if defined(DEBUG_SERIAL_USART2) || defined(DEBUG_SERIAL_USART3)
+          printf("-- Motors disarmed: CH5 OFF --\r\n");
+          #endif
+        }
+      } else if (!rcArmSwitchPrev) {
+        #if defined(DEBUG_SERIAL_USART2) || defined(DEBUG_SERIAL_USART3)
+        printf("-- CH5 ARM enabled, waiting for sticks neutral --\r\n");
+        #endif
+      }
+
+      rcArmSwitchPrev = rcArmSwitchActive;
+
       // ####### MOTOR ENABLING: Only if the initial input is very small (for SAFETY) #######
-      if (enable == 0 && !rtY_Left.z_errCode && !rtY_Right.z_errCode &&
+      if (rcArmSwitchActive && enable == 0 && !rtY_Left.z_errCode && !rtY_Right.z_errCode &&
           ABS(input1[inIdx].cmd) < 50 && ABS(input2[inIdx].cmd) < 50){
         beepShort(6);                     // make 2 beeps indicating the motor enable
         beepShort(4); HAL_Delay(100);
@@ -316,7 +336,7 @@ int main(void) {
 
       // ####### LOW-PASS FILTER #######
       int16_t speedRate = rate;
-      rateLimiter16(input1[inIdx].cmd, rate, &steerRateFixdt);
+      rateLimiter16(input1[inIdx].cmd, STEER_RATE, &steerRateFixdt);
       #ifdef RATE_RELEASE
         if (ABS(input2[inIdx].cmd) < ABS(speedRateFixdt >> 4)) {
           speedRate = RATE_RELEASE;
@@ -356,9 +376,17 @@ int main(void) {
         // Tank steering (no mixing)
         cmdL = steer; 
         cmdR = speed;
+        // Limit motor commands based on mower speed selector
+        int16_t max_cmd = driveControlLimitFromSwitch();
+        cmdL = CLAMP(cmdL, -max_cmd, max_cmd);
+        cmdR = CLAMP(cmdR, -max_cmd, max_cmd);
       #else 
         // ####### MIXER #######
         mixerFcn(speed << 4, steer << 4, &cmdR, &cmdL);   // This function implements the equations above
+        // Limit motor commands based on mower speed selector
+        int16_t max_cmd = driveControlLimitFromSwitch();
+        cmdL = CLAMP(cmdL, -max_cmd, max_cmd);
+        cmdR = CLAMP(cmdR, -max_cmd, max_cmd);
       #endif
 
 

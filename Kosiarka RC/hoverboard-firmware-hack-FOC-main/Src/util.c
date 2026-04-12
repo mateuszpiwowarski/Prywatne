@@ -129,6 +129,7 @@ uint16_t VirtAddVarTab[NB_OF_VAR] = {1000};       // Dummy virtual address to av
 //------------------------------------------------------------------------
 static int16_t INPUT_MAX;             // [-] Input target maximum limitation
 static int16_t INPUT_MIN;             // [-] Input target minimum limitation
+int16_t swc_value = 1000;             // global variable for SWC switch value, default to full-speed profile
 
 
 #if !defined(VARIANT_HOVERBOARD) && !defined(VARIANT_TRANSPOTTER)
@@ -202,6 +203,8 @@ static uint8_t button2;                 // Green
 #ifdef VARIANT_HOVERCAR
 static uint8_t brakePressed;
 #endif
+
+uint8_t rcArmSwitchActive = 0;
 
 #if defined(CRUISE_CONTROL_SUPPORT) || (defined(STANDSTILL_HOLD_ENABLE) && (CTRL_TYP_SEL == FOC_CTRL) && (CTRL_MOD_REQ != SPD_MODE))
 static uint8_t cruiseCtrlAcv = 0;
@@ -869,6 +872,8 @@ void readInputRaw(void) {
         }
         input1[inIdx].raw = (ibusL_captured_value[IBUS_CH_STEER] - 500) * 2;
         input2[inIdx].raw = (ibusL_captured_value[IBUS_CH_SPEED] - 500) * 2;
+        swc_value = (ibusL_captured_value[7] - 500) * 2;  // SWC on channel 8 (index 7)
+        rcArmSwitchActive = (uint8_t)(ibusL_captured_value[IBUS_CH_ARM] > IBUS_ARM_THRESHOLD);
       #else
         input1[inIdx].raw = commandL.steer;
         input2[inIdx].raw = commandL.speed;
@@ -883,6 +888,8 @@ void readInputRaw(void) {
         }
         input1[inIdx].raw = (ibusR_captured_value[IBUS_CH_STEER] - 500) * 2;
         input2[inIdx].raw = (ibusR_captured_value[IBUS_CH_SPEED] - 500) * 2;
+        swc_value = (ibusR_captured_value[7] - 500) * 2;  // SWC on channel 8 (index 7)
+        rcArmSwitchActive = (uint8_t)(ibusR_captured_value[IBUS_CH_ARM] > IBUS_ARM_THRESHOLD);
       #else
         input1[inIdx].raw = commandR.steer;
         input2[inIdx].raw = commandR.speed;
@@ -907,12 +914,14 @@ void readInputRaw(void) {
     if (inIdx == CONTROL_PPM_LEFT) {
       input1[inIdx].raw = (ppm_captured_value[0] - 500) * 2;
       input2[inIdx].raw = (ppm_captured_value[1] - 500) * 2;
+      swc_value = (ppm_captured_value[7] - 500) * 2;  // SWC on channel 8 (index 7)
     }
     #endif
     #if defined(CONTROL_PPM_RIGHT)
     if (inIdx == CONTROL_PPM_RIGHT) {
       input1[inIdx].raw = (ppm_captured_value[0] - 500) * 2;
       input2[inIdx].raw = (ppm_captured_value[1] - 500) * 2;
+      swc_value = (ppm_captured_value[7] - 500) * 2;  // SWC on channel 8 (index 7)
     }
     #endif
     #if (defined(CONTROL_PPM_LEFT) || defined(CONTROL_PPM_RIGHT)) && defined(SUPPORT_BUTTONS)
@@ -1072,6 +1081,10 @@ void handleTimeout(void) {
  */
 void readCommand(void) {
     readInputRaw();
+
+    #ifndef CONTROL_IBUS
+      rcArmSwitchActive = 1;
+    #endif
 
     #if !defined(VARIANT_HOVERBOARD) && !defined(VARIANT_TRANSPOTTER)
       calcInputCmd(&input1[inIdx], INPUT_MIN, INPUT_MAX);
@@ -1302,10 +1315,18 @@ void usart_process_command(SerialCommand *command_in, SerialCommand *command_out
           timeoutFlgSerial_L = 0;         // Clear timeout flag
           timeoutCntSerial_L = 0;         // Reset timeout counter
           #endif
+          #ifdef GYRO_CORRECTION_SERIAL_USART2
+          timeoutFlgSerialGyro_L = 0;
+          timeoutCntSerialGyro_L = 0;
+          #endif
         } else if (usart_idx == 3) {      // Sideboard USART3
           #ifdef CONTROL_SERIAL_USART3
           timeoutFlgSerial_R = 0;         // Clear timeout flag
           timeoutCntSerial_R = 0;         // Reset timeout counter
+          #endif
+          #ifdef GYRO_CORRECTION_SERIAL_USART3
+          timeoutFlgSerialGyro_R = 0;
+          timeoutCntSerialGyro_R = 0;
           #endif
         }
       }
@@ -1780,6 +1801,15 @@ void mixerFcn(int16_t rtu_speed, int16_t rtu_steer, int16_t *rty_speedR, int16_t
     tmp         = CLAMP(tmp, -32768, 32767);  // Overflow protection
     *rty_speedL = (int16_t)(tmp >> 4);        // Convert from fixed-point to int
     *rty_speedL = CLAMP(*rty_speedL, INPUT_MIN, INPUT_MAX);
+}
+
+int16_t driveControlLimitFromSwitch(void) {
+    if (swc_value < -333) {
+      return 250;  // low-speed profile for precise maneuvers
+    } else if (swc_value < 333) {
+      return 400;  // medium-speed profile
+    }
+    return 500;    // full mower profile
 }
 
 

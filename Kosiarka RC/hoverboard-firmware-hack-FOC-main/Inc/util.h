@@ -92,6 +92,7 @@ void calcInputCmd(InputStruct *in, int16_t out_min, int16_t out_max);
 void readInputRaw(void);
 void handleTimeout(void);
 void readCommand(void);
+extern uint8_t rcArmSwitchActive;
 void usart2_rx_check(void);
 void usart3_rx_check(void);
 #if defined(DEBUG_SERIAL_USART2) || defined(DEBUG_SERIAL_USART3)
@@ -121,6 +122,7 @@ void poweroffPressCheck(void);
 void filtLowPass32(int32_t u, uint16_t coef, int32_t *y);
 void rateLimiter16(int16_t u, int16_t rate, int16_t *y);
 void mixerFcn(int16_t rtu_speed, int16_t rtu_steer, int16_t *rty_speedR, int16_t *rty_speedL);
+int16_t driveControlLimitFromSwitch(void);
 
 // Multiple Tap Function
 typedef struct {

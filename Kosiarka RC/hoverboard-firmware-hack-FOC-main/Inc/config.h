@@ -84,8 +84,8 @@
 #define BAT_LVL4                (380 * BAT_CELLS * BAT_CALIB_ADC) / BAT_CALIB_REAL_VOLTAGE    // Yellow:       no beep
 #define BAT_LVL3                (370 * BAT_CELLS * BAT_CALIB_ADC) / BAT_CALIB_REAL_VOLTAGE    // Yellow blink: no beep 
 #define BAT_LVL2                (360 * BAT_CELLS * BAT_CALIB_ADC) / BAT_CALIB_REAL_VOLTAGE    // Red:          gently beep at this voltage level. [V*100/cell]. In this case 3.60 V/cell
-#define BAT_LVL1                (350 * BAT_CELLS * BAT_CALIB_ADC) / BAT_CALIB_REAL_VOLTAGE    // Red blink:    fast beep. Your battery is almost empty. Charge now! [V*100/cell]. In this case 3.50 V/cell
-#define BAT_DEAD                (337 * BAT_CELLS * BAT_CALIB_ADC) / BAT_CALIB_REAL_VOLTAGE    // All leds off: undervoltage poweroff. (while not driving) [V*100/cell]. In this case 3.37 V/cell
+#define BAT_LVL1                (310 * BAT_CELLS * BAT_CALIB_ADC) / BAT_CALIB_REAL_VOLTAGE    // Red blink:    fast beep. Your battery is almost empty. Charge now! [V*100/cell]. In this case 3.10 V/cell
+#define BAT_DEAD                (290 * BAT_CELLS * BAT_CALIB_ADC) / BAT_CALIB_REAL_VOLTAGE    // All leds off: undervoltage poweroff. (while not driving) [V*100/cell]. In this case 2.90 V/cell
 // ######################## END OF BATTERY ###############################
 
 
@@ -148,7 +148,7 @@
 
 // Control selections
 #define CTRL_TYP_SEL    FOC_CTRL        // [-] Control type selection: COM_CTRL, SIN_CTRL, FOC_CTRL (default)
-#define CTRL_MOD_REQ    VLT_MODE        // [-] Control mode request: OPEN_MODE, VLT_MODE (default), SPD_MODE, TRQ_MODE. Note: SPD_MODE and TRQ_MODE are only available for CTRL_FOC!
+#define CTRL_MOD_REQ    SPD_MODE        // [-] Control mode request: OPEN_MODE, VLT_MODE, SPD_MODE (default here), TRQ_MODE. Note: SPD_MODE and TRQ_MODE are only available for CTRL_FOC!
 #define DIAG_ENA        1               // [-] Motor Diagnostics enable flag: 0 = Disabled, 1 = Enabled (default)
 
 // Limitation settings
@@ -190,9 +190,10 @@
 */
 // Value of RATE is in fixdt(1,16,4): VAL_fixedPoint = VAL_floatingPoint * 2^4. In this case 480 = 30 * 2^4
 #define DEFAULT_RATE                480   // 30.0f [-] lower value == slower rate [0, 32767] = [0.0, 2047.9375]. Do NOT make rate negative (>32767)
-#define DEFAULT_FILTER              6553  // Default for FILTER 0.1f [-] lower value == softer filter [0, 65535] = [0.0 - 1.0].
+#define DEFAULT_FILTER             13107  // Default for FILTER 0.2f [-] lower value == softer filter [0, 65535] = [0.0 - 1.0].
 #define DEFAULT_SPEED_COEFFICIENT   16384 // Default for SPEED_COEFFICIENT 1.0f [-] higher value == stronger. [0, 65535] = [-2.0 - 2.0]. In this case 16384 = 1.0 * 2^14
 #define DEFAULT_STEER_COEFFICIENT   8192  // Defualt for STEER_COEFFICIENT 0.5f [-] higher value == stronger. [0, 65535] = [-2.0 - 2.0]. In this case  8192 = 0.5 * 2^14. If you do not want any steering, set it to 0.
+#define DEFAULT_STEER_RATE          DEFAULT_RATE
 // ######################### END OF DEFAULT SETTINGS ##########################
 
 
@@ -485,7 +486,10 @@
   #define USART3_BAUD             115200
   #define IBUS_CH_STEER           0       // FS-i6X channel 1 (ailerons / steering)
   #define IBUS_CH_SPEED           1       // FS-i6X channel 2 (self-centering stick recommended)
+  #define IBUS_CH_ARM             4       // FS-i6X channel 5 switch used as mandatory ARM switch
+  #define IBUS_ARM_THRESHOLD      500     // normalized 0..1000 threshold above which CH5 arms the drive
   #define RATE                    80      // very soft acceleration / steering ramp for smoother starts
+  #define STEER_RATE              120     // softer steering ramp for finer control
   #define RATE_RELEASE            480     // faster ramp when releasing throttle so the mower stops sooner
   #define FILTER                  1966    // 0.03f additional smoothing on stick response
 
@@ -692,6 +696,9 @@
 #endif
 #ifndef STEER_COEFFICIENT
   #define STEER_COEFFICIENT DEFAULT_STEER_COEFFICIENT
+#endif
+#ifndef STEER_RATE
+  #define STEER_RATE DEFAULT_STEER_RATE
 #endif
 #if defined(PRI_INPUT1) && defined(PRI_INPUT2) && defined(AUX_INPUT1) && defined(AUX_INPUT2)
   #define INPUTS_NR               2
