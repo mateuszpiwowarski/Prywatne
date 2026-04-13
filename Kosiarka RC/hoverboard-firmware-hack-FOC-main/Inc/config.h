@@ -485,9 +485,13 @@
   #define IBUS_COMMAND            0x40
   #define USART3_BAUD             115200
   #define IBUS_CH_STEER           0       // FS-i6X channel 1 (ailerons / steering)
-  #define IBUS_CH_SPEED           1       // FS-i6X channel 2 (self-centering stick recommended)
+  #define IBUS_CH_SPEED           1       // FS-i6X channel 2 (normal driving speed on right stick)
+  #define IBUS_CH_GYRO_SPEED      2       // FS-i6X channel 3 (gyro mode speed on left stick)
   #define IBUS_CH_ARM             4       // FS-i6X channel 5 switch used as mandatory ARM switch
+  #define IBUS_CH_GYRO_MODE       7       // FS-i6X channel 8 switch toggles gyro-assisted mode
   #define IBUS_ARM_THRESHOLD      500     // normalized 0..1000 threshold above which CH5 arms the drive
+  #define IBUS_GYRO_MODE_THRESHOLD 500    // normalized 0..1000 threshold above which CH8 enables gyro mode
+  #define GYRO_CORRECTION_SERIAL_USART2   // ESP -> STM32 gyro correction on left sensor cable (USART2 RX only)
   #define RATE                    80      // very soft acceleration / steering ramp for smoother starts
   #define STEER_RATE              120     // softer steering ramp for finer control
   #define RATE_RELEASE            480     // faster ramp when releasing throttle so the mower stops sooner
@@ -735,10 +739,6 @@
 
 #if defined(GYRO_CORRECTION_SERIAL_USART2) && defined(GYRO_CORRECTION_SERIAL_USART3)
   #error Only one gyro correction UART is supported at a time.
-#endif
-
-#if defined(CONTROL_IBUS) && (defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3))
-  #error Gyro correction UART currently supports only the standard SerialCommand packet, not iBUS.
 #endif
 
 #if defined(DEBUG_SERIAL_USART2) && defined(FEEDBACK_SERIAL_USART2)

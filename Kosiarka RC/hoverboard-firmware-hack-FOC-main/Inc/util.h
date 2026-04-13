@@ -25,23 +25,31 @@
 
 
 // Rx Structures USART
-#if defined(CONTROL_SERIAL_USART2) || defined(CONTROL_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
+#if defined(CONTROL_SERIAL_USART2) || defined(CONTROL_SERIAL_USART3)
   #ifdef CONTROL_IBUS
     typedef struct{
       uint8_t  start;
-      uint8_t  type; 
+      uint8_t  type;
       uint8_t  channels[IBUS_NUM_CHANNELS*2];
       uint8_t  checksuml;
       uint8_t  checksumh;
-    } SerialCommand;
+    } ControlSerialCommand;
   #else
     typedef struct{
       uint16_t  start;
       int16_t   steer;
       int16_t   speed;
       uint16_t  checksum;
-    } SerialCommand;
+    } ControlSerialCommand;
   #endif
+#endif
+#if defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
+  typedef struct{
+    uint16_t  start;
+    int16_t   steer;
+    int16_t   speed;
+    uint16_t  checksum;
+  } GyroSerialCommand;
 #endif
 #if defined(SIDEBOARD_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART3)
     typedef struct{
@@ -93,18 +101,20 @@ void readInputRaw(void);
 void handleTimeout(void);
 void readCommand(void);
 extern uint8_t rcArmSwitchActive;
+extern uint8_t rcGyroModeSwitchActive;
 void usart2_rx_check(void);
 void usart3_rx_check(void);
 #if defined(DEBUG_SERIAL_USART2) || defined(DEBUG_SERIAL_USART3)
 void usart_process_debug(uint8_t *userCommand, uint32_t len);
 #endif
-#if defined(CONTROL_SERIAL_USART2) || defined(CONTROL_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
-void usart_process_command(SerialCommand *command_in, SerialCommand *command_out, uint8_t usart_idx);
+#if defined(CONTROL_SERIAL_USART2) || defined(CONTROL_SERIAL_USART3)
+void usart_process_control_command(ControlSerialCommand *command_in, ControlSerialCommand *command_out, uint8_t usart_idx);
 #endif
 #if defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
+void usart_process_gyro_command(GyroSerialCommand *command_in, GyroSerialCommand *command_out, uint8_t usart_idx);
+#endif
 int16_t gyroCorrectionGet(void);
 uint8_t gyroCorrectionIsActive(void);
-#endif
 #if defined(SIDEBOARD_SERIAL_USART2) || defined(SIDEBOARD_SERIAL_USART3)
 void usart_process_sideboard(SerialSideboard *Sideboard_in, SerialSideboard *Sideboard_out, uint8_t usart_idx);
 #endif

@@ -53,8 +53,6 @@ static const uint32_t GYRO_MODE_PULSE_READ_TIMEOUT_US = 30000;
 static const uint16_t GYRO_MODE_ON_THRESHOLD_US = 1600;
 static const uint16_t GYRO_MODE_OFF_THRESHOLD_US = 1400;
 static const uint16_t GYRO_MODE_READ_INTERVAL_MS = 100;
-static const uint16_t GYRO_STEER_DEADBAND_US = 80;
-static const float GYRO_HEADING_ADJUST_RATE_DPS = 40.0f;
 
 // BMI160 - zyroskop do prostego trybu "heading hold"
 static const int BMI160_SDA_PIN = 21;
@@ -68,6 +66,14 @@ static const float BMI160_GYRO_Z_DEADBAND_DPS = 0.15f;
 static const float HEADING_HOLD_P_GAIN = 2.5f;
 static const float HEADING_HOLD_MAX_CORRECTION = 60.0f;
 static const float HEADING_DISPLAY_JITTER_DEG = 0.05f;
+
+// UART do hoverboarda STM32 (ESP wysyla tylko korekte zyroskopowa)
+static const int HOVER_UART_TX_PIN = 2;
+static const uint32_t HOVER_UART_BAUD = 115200;
+static const uint16_t HOVER_UART_START_FRAME = 0xABCD;
+static const uint16_t HOVER_UART_SEND_INTERVAL_MS = 20;
+static const float HOVER_UART_CORRECTION_GAIN = 4.0f;
+static const int16_t HOVER_UART_CORRECTION_MAX = 250;
 
 // Temperatura
 static const uint8_t TEMP_SENSOR_COUNT = 3;
@@ -90,6 +96,7 @@ static const bool TFT_BL_INVERT = false;
 
 // TFT Display
 TFT_eSPI tft = TFT_eSPI();
+HardwareSerial HoverGyroSerial(1);
 static const uint32_t TFT_BG_COLOR = TFT_BLACK;
 static const uint32_t TFT_TEXT_COLOR = TFT_WHITE;
 static const uint32_t TFT_ALERT_COLOR = TFT_RED;
@@ -119,6 +126,20 @@ struct GyroHoldState {
     float correction = 0.0f;
     uint32_t lastUpdateUs = 0;
     uint32_t lastSwitchReadMs = 0;
+};
+
+struct HoverSerialCommand {
+    uint16_t start;
+    int16_t steer;
+    int16_t speed;
+    uint16_t checksum;
+};
+
+struct RcPulseCapture {
+    int pin;
+    volatile uint32_t riseUs;
+    volatile uint32_t pulseUs;
+    volatile uint32_t lastEdgeUs;
 };
 
 struct TempSensorConfig {
@@ -158,6 +179,9 @@ uint16_t lastTempAdcRaw[TEMP_SENSOR_COUNT] = {0};
 bool relayEnabled = false;
 int thermalShutdownSensorIndex = -1;
 GyroHoldState gyroHold;
+RcPulseCapture rcInputCapture = {RC_INPUT_PIN, 0, 0, 0};
+RcPulseCapture gyroModeCapture = {GYRO_MODE_RC_PIN, 0, 0, 0};
+RcPulseCapture relayInputCapture = {RC_RELAY_INPUT_PIN, 0, 0, 0};
 
 void printBootStage(const char* message) {
     Serial.print("[BOOT] ");
@@ -436,7 +460,6 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
 // =========================
 void x9cSetStep(uint8_t targetStep);
 void printStatus(uint16_t inputPulseUs, uint8_t targetStep, const float temps[], float maxTemp, uint16_t relayPulseUs, bool relayState);
-uint16_t readPulseUsFromPin(int pin, uint32_t timeoutUs);
 uint16_t readGyroModePulseUs();
 void updateGyroModeSwitch();
 bool bmi160Begin();
@@ -445,6 +468,12 @@ bool readBmi160GyroZ(float& gyroZDps);
 void updateGyroHeadingHold();
 float normalizeAngleDeg(float angleDeg);
 void resetGyroHoldTarget();
+void initHoverGyroUart();
+void sendHoverGyroCorrection();
+void initRcPulseCapture();
+void processUsbSerialCommands();
+void processUsbSerialCommand(const char* commandLine);
+uint16_t readPulseUs(volatile RcPulseCapture& capture, uint32_t timeoutUs);
 
 uint32_t dutyPercentToRaw(uint8_t percent, int resolutionBits) {
     uint32_t maxDuty = (1UL << resolutionBits) - 1;
@@ -533,8 +562,57 @@ bool hasValidReceiverSignal(uint16_t pulseUs) {
     return pulseUs >= RC_PULSE_VALID_MIN_US && pulseUs <= RC_PULSE_VALID_MAX_US;
 }
 
-uint16_t readPulseUsFromPin(int pin, uint32_t timeoutUs) {
-    uint32_t pulseUs = pulseIn(pin, HIGH, timeoutUs);
+void IRAM_ATTR handleRcInputInterrupt() {
+    uint32_t nowUs = micros();
+    rcInputCapture.lastEdgeUs = nowUs;
+    if (digitalRead(RC_INPUT_PIN)) {
+        rcInputCapture.riseUs = nowUs;
+    } else if (rcInputCapture.riseUs != 0) {
+        rcInputCapture.pulseUs = nowUs - rcInputCapture.riseUs;
+    }
+}
+
+void IRAM_ATTR handleGyroModeInterrupt() {
+    uint32_t nowUs = micros();
+    gyroModeCapture.lastEdgeUs = nowUs;
+    if (digitalRead(GYRO_MODE_RC_PIN)) {
+        gyroModeCapture.riseUs = nowUs;
+    } else if (gyroModeCapture.riseUs != 0) {
+        gyroModeCapture.pulseUs = nowUs - gyroModeCapture.riseUs;
+    }
+}
+
+void IRAM_ATTR handleRelayInputInterrupt() {
+    uint32_t nowUs = micros();
+    relayInputCapture.lastEdgeUs = nowUs;
+    if (digitalRead(RC_RELAY_INPUT_PIN)) {
+        relayInputCapture.riseUs = nowUs;
+    } else if (relayInputCapture.riseUs != 0) {
+        relayInputCapture.pulseUs = nowUs - relayInputCapture.riseUs;
+    }
+}
+
+void initRcPulseCapture() {
+    pinMode(RC_INPUT_PIN, INPUT);
+    pinMode(GYRO_MODE_RC_PIN, INPUT);
+    pinMode(RC_RELAY_INPUT_PIN, INPUT);
+    attachInterrupt(digitalPinToInterrupt(RC_INPUT_PIN), handleRcInputInterrupt, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(GYRO_MODE_RC_PIN), handleGyroModeInterrupt, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(RC_RELAY_INPUT_PIN), handleRelayInputInterrupt, CHANGE);
+}
+
+uint16_t readPulseUs(volatile RcPulseCapture& capture, uint32_t timeoutUs) {
+    uint32_t pulseUs;
+    uint32_t lastEdgeUs;
+    noInterrupts();
+    pulseUs = capture.pulseUs;
+    lastEdgeUs = capture.lastEdgeUs;
+    interrupts();
+
+    if (lastEdgeUs == 0 || (micros() - lastEdgeUs) > timeoutUs) {
+        return 0;
+    }
+
     if (!hasValidReceiverSignal((uint16_t)pulseUs)) {
         return 0;
     }
@@ -543,21 +621,15 @@ uint16_t readPulseUsFromPin(int pin, uint32_t timeoutUs) {
 }
 
 uint16_t readReceiverPulseUs() {
-    return readPulseUsFromPin(RC_INPUT_PIN, RC_PULSE_READ_TIMEOUT_US);
+    return readPulseUs(rcInputCapture, RC_PULSE_READ_TIMEOUT_US);
 }
 
 uint16_t readGyroModePulseUs() {
-    return readPulseUsFromPin(GYRO_MODE_RC_PIN, GYRO_MODE_PULSE_READ_TIMEOUT_US);
+    return readPulseUs(gyroModeCapture, GYRO_MODE_PULSE_READ_TIMEOUT_US);
 }
 
 uint16_t readRelaySwitchPulseUs() {
-    uint32_t pulseUs = pulseIn(RC_RELAY_INPUT_PIN, HIGH, RC_PULSE_READ_TIMEOUT_US);
-
-    if (!hasValidReceiverSignal((uint16_t)pulseUs)) {
-        return 0;
-    }
-
-    return (uint16_t)pulseUs;
+    return readPulseUs(relayInputCapture, RC_PULSE_READ_TIMEOUT_US);
 }
 
 uint8_t inputPulseToX9cStep(uint16_t pulseUs) {
@@ -854,6 +926,34 @@ void resetGyroHoldTarget() {
     gyroHold.correction = 0.0f;
 }
 
+void initHoverGyroUart() {
+    HoverGyroSerial.begin(HOVER_UART_BAUD, SERIAL_8N1, -1, HOVER_UART_TX_PIN);
+}
+
+void sendHoverGyroCorrection() {
+    static uint32_t lastSendMs = 0;
+    uint32_t now = millis();
+    if (now - lastSendMs < HOVER_UART_SEND_INTERVAL_MS) {
+        return;
+    }
+    lastSendMs = now;
+
+    HoverSerialCommand command = {};
+    command.start = HOVER_UART_START_FRAME;
+
+    if (gyroHold.sensorFound && gyroHold.holdEnabled) {
+        const float scaledCorrection = gyroHold.correction * HOVER_UART_CORRECTION_GAIN;
+        command.steer = (int16_t)constrain((int)lroundf(scaledCorrection), (int)-HOVER_UART_CORRECTION_MAX, (int)HOVER_UART_CORRECTION_MAX);
+        command.speed = 1;  // speed > 0 aktywuje korekte po stronie STM32
+    } else {
+        command.steer = 0;
+        command.speed = 0;
+    }
+
+    command.checksum = (uint16_t)(command.start ^ command.steer ^ command.speed);
+    HoverGyroSerial.write((const uint8_t *)&command, sizeof(command));
+}
+
 void updateGyroModeSwitch() {
     uint32_t now = millis();
     if (now - gyroHold.lastSwitchReadMs < GYRO_MODE_READ_INTERVAL_MS) {
@@ -915,14 +1015,6 @@ void updateGyroHeadingHold() {
         gyroHold.headingErrorDeg = 0.0f;
         gyroHold.correction = 0.0f;
         return;
-    }
-
-    if (gyroHold.switchSignalPresent) {
-        float steerNorm = ((float)gyroHold.switchPulseUs - 1500.0f) / 500.0f;
-        if (fabsf(steerNorm) > ((float)GYRO_STEER_DEADBAND_US / 500.0f)) {
-            steerNorm = constrain(steerNorm, -1.0f, 1.0f);
-            gyroHold.targetHeadingDeg = normalizeAngleDeg(gyroHold.targetHeadingDeg + steerNorm * GYRO_HEADING_ADJUST_RATE_DPS * dt);
-        }
     }
 
     gyroHold.headingErrorDeg = normalizeAngleDeg(gyroHold.targetHeadingDeg - gyroHold.headingDeg);
@@ -1053,8 +1145,95 @@ bool startOrUpdatePwm(uint32_t freq, uint8_t dutyPercent) {
     return true;
 }
 
+void processUsbSerialCommand(const char* commandLine) {
+    String input(commandLine);
+    input.trim();
+
+    if (input.length() == 0) {
+        return;
+    }
+
+    if (input.equalsIgnoreCase("GYRORESET")) {
+        resetGyroHoldTarget();
+        Serial.println("Zresetowano target heading do aktualnego kata.");
+        return;
+    }
+
+    if (!ENABLE_PWM_OUTPUT) {
+        Serial.println("Tryb X9C: komendy PWM START/STOP/Hz sa wylaczone.");
+        return;
+    }
+
+    if (input.equalsIgnoreCase("STOP")) {
+        isSweeping = false;
+        stopPwm();
+        Serial.println("Sweep zatrzymany");
+        return;
+    }
+
+    if (thermalShutdownActive) {
+        Serial.println("Blokada termiczna aktywna. Poczekaj az silnik ostygnie.");
+        return;
+    }
+
+    if (!startupUnlocked) {
+        Serial.println("Blokada startu: najpierw ustaw potencjometr na 0.");
+        return;
+    }
+
+    if (input.equalsIgnoreCase("START")) {
+        isSweeping = true;
+        sweepDirection = true;
+        sweepStartTime = millis();
+        Serial.println("Sweep wznowiony (0 -> 15kHz)");
+        return;
+    }
+
+    long newFreq = input.toInt();
+
+    if (newFreq < (long)FREQ_MIN || newFreq > (long)FREQ_MAX) {
+        Serial.println("Zakres 0-15000 Hz");
+        Serial.println("Lub wyslij START/STOP");
+        return;
+    }
+
+    isSweeping = false;
+    currentFreq = (uint32_t)newFreq;
+
+    if (!startOrUpdatePwm(currentFreq, currentDutyPercent)) {
+        Serial.println("Blad PWM");
+    }
+}
+
+void processUsbSerialCommands() {
+    static char inputBuffer[32];
+    static size_t inputLen = 0;
+
+    while (Serial.available() > 0) {
+        char ch = (char)Serial.read();
+
+        if (ch == '\r') {
+            continue;
+        }
+
+        if (ch == '\n') {
+            inputBuffer[inputLen] = '\0';
+            processUsbSerialCommand(inputBuffer);
+            inputLen = 0;
+            continue;
+        }
+
+        if (inputLen < (sizeof(inputBuffer) - 1)) {
+            inputBuffer[inputLen++] = ch;
+        } else {
+            inputLen = 0;
+        }
+    }
+}
+
 void setup() {
     Serial.begin(115200);
+    initHoverGyroUart();
     delay(300);
     printBootStage("Start programu");
     Serial.print("[BOOT] Reset reason=");
@@ -1086,9 +1265,7 @@ void setup() {
         pinMode(PWM_PIN, OUTPUT);
         digitalWrite(PWM_PIN, LOW);
     }
-    pinMode(RC_INPUT_PIN, INPUT);
-    pinMode(GYRO_MODE_RC_PIN, INPUT);
-    pinMode(RC_RELAY_INPUT_PIN, INPUT);
+    initRcPulseCapture();
     pinMode(RELAY_OUTPUT_PIN, OUTPUT);
     setRelayState(false);
 
@@ -1198,6 +1375,7 @@ void loop() {
     uint32_t now = millis();
     updateGyroModeSwitch();
     updateGyroHeadingHold();
+    sendHoverGyroCorrection();
 
     if (!tempInitialized || (now - lastTempSample >= TEMP_SAMPLE_INTERVAL_MS)) {
         readAllTemperatures(currentTemps);
@@ -1308,66 +1486,6 @@ void loop() {
 
     tftPrintStatus(displayInputPulseUs, displayTargetStep, displayOutputStep, displayTemps, displayMaxTemp, displayRelayPulseUs, displayRelayEnabled, displayPwmFreq, displayStartupUnlocked, displaySweeping);
 
-    if (Serial.available()) {
-        String input = Serial.readStringUntil('\n');
-        input.trim();
-
-        if (input.length() == 0) {
-            return;
-        }
-
-        if (input.equalsIgnoreCase("GYRORESET")) {
-            resetGyroHoldTarget();
-            Serial.println("Zresetowano target heading do aktualnego kata.");
-            return;
-        }
-
-        if (!ENABLE_PWM_OUTPUT) {
-            Serial.println("Tryb X9C: komendy PWM START/STOP/Hz sa wylaczone.");
-            return;
-        }
-
-        if (input.equalsIgnoreCase("STOP")) {
-            isSweeping = false;
-            stopPwm();
-            Serial.println("Sweep zatrzymany");
-            return;
-        }
-
-        if (thermalShutdownActive) {
-            Serial.println("Blokada termiczna aktywna. Poczekaj az silnik ostygnie.");
-            return;
-        }
-
-        if (!startupUnlocked) {
-            Serial.println("Blokada startu: najpierw ustaw potencjometr na 0.");
-            return;
-        }
-
-        if (input.equalsIgnoreCase("START")) {
-            isSweeping = true;
-            sweepDirection = true;
-            sweepStartTime = millis();
-            Serial.println("Sweep wznowiony (0 -> 15kHz)");
-            return;
-        }
-
-        long newFreq = input.toInt();
-
-        if (newFreq < (long)FREQ_MIN || newFreq > (long)FREQ_MAX) {
-            Serial.println("Zakres 0-15000 Hz");
-            Serial.println("Lub wyslij START/STOP");
-            return;
-        }
-
-        isSweeping = false;
-        currentFreq = (uint32_t)newFreq;
-
-        if (!startOrUpdatePwm(currentFreq, currentDutyPercent)) {
-            Serial.println("Blad PWM");
-        }
-    }
-
-    delay(50);
+    processUsbSerialCommands();
 }
 

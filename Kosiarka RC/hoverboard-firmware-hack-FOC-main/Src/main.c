@@ -82,6 +82,7 @@ extern volatile int pwmr;               // global variable for pwm right. -1000 
 
 extern uint8_t enable;                  // global variable for motor enable
 extern uint8_t rcArmSwitchActive;       // RC arm switch state (e.g. iBUS CH5)
+extern uint8_t rcGyroModeSwitchActive;  // RC gyro-mode switch state (e.g. iBUS CH8)
 
 extern int16_t batVoltage;              // global variable for battery voltage
 extern int16_t swc_value;               // global variable for SWC switch value
@@ -348,7 +349,7 @@ int main(void) {
       steer = (int16_t)(steerFixdt >> 16);  // convert fixed-point to integer
       speed = (int16_t)(speedFixdt >> 16);  // convert fixed-point to integer
       #if defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
-        if (gyroCorrectionIsActive()) {
+        if (rcGyroModeSwitchActive && gyroCorrectionIsActive()) {
           steer = CLAMP(steer + gyroCorrectionGet(), -1000, 1000);
         }
       #endif

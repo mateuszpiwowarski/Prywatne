@@ -177,22 +177,32 @@ SerialSideboard Sideboard_R_raw;
 static uint32_t Sideboard_R_len = sizeof(Sideboard_R);
 #endif
 
-#if defined(CONTROL_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2)
-static SerialCommand commandL;
-static SerialCommand commandL_raw;
+#if defined(CONTROL_SERIAL_USART2)
+static ControlSerialCommand commandL;
+static ControlSerialCommand commandL_raw;
 static uint32_t commandL_len = sizeof(commandL);
   #ifdef CONTROL_IBUS
   static uint16_t ibusL_captured_value[IBUS_NUM_CHANNELS];
   #endif
 #endif
+#if defined(GYRO_CORRECTION_SERIAL_USART2)
+static GyroSerialCommand gyroCommandL;
+static GyroSerialCommand gyroCommandL_raw;
+static uint32_t gyroCommandL_len = sizeof(gyroCommandL);
+#endif
 
-#if defined(CONTROL_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
-static SerialCommand commandR;
-static SerialCommand commandR_raw;
+#if defined(CONTROL_SERIAL_USART3)
+static ControlSerialCommand commandR;
+static ControlSerialCommand commandR_raw;
 static uint32_t commandR_len = sizeof(commandR);
   #ifdef CONTROL_IBUS
   static uint16_t ibusR_captured_value[IBUS_NUM_CHANNELS];
   #endif
+#endif
+#if defined(GYRO_CORRECTION_SERIAL_USART3)
+static GyroSerialCommand gyroCommandR;
+static GyroSerialCommand gyroCommandR_raw;
+static uint32_t gyroCommandR_len = sizeof(gyroCommandR);
 #endif
 
 #if defined(SUPPORT_BUTTONS) || defined(SUPPORT_BUTTONS_LEFT) || defined(SUPPORT_BUTTONS_RIGHT)
@@ -205,6 +215,7 @@ static uint8_t brakePressed;
 #endif
 
 uint8_t rcArmSwitchActive = 0;
+uint8_t rcGyroModeSwitchActive = 0;
 
 #if defined(CRUISE_CONTROL_SUPPORT) || (defined(STANDSTILL_HOLD_ENABLE) && (CTRL_TYP_SEL == FOC_CTRL) && (CTRL_MOD_REQ != SPD_MODE))
 static uint8_t cruiseCtrlAcv = 0;
@@ -871,8 +882,9 @@ void readInputRaw(void) {
           ibusL_captured_value[(i/2)] = CLAMP(commandL.channels[i] + (commandL.channels[i+1] << 8) - 1000, 0, INPUT_MAX); // 1000-2000 -> 0-1000
         }
         input1[inIdx].raw = (ibusL_captured_value[IBUS_CH_STEER] - 500) * 2;
-        input2[inIdx].raw = (ibusL_captured_value[IBUS_CH_SPEED] - 500) * 2;
-        swc_value = (ibusL_captured_value[7] - 500) * 2;  // SWC on channel 8 (index 7)
+        rcGyroModeSwitchActive = (uint8_t)(ibusL_captured_value[IBUS_CH_GYRO_MODE] > IBUS_GYRO_MODE_THRESHOLD);
+        input2[inIdx].raw = (ibusL_captured_value[rcGyroModeSwitchActive ? IBUS_CH_GYRO_SPEED : IBUS_CH_SPEED] - 500) * 2;
+        swc_value = (ibusL_captured_value[IBUS_CH_GYRO_MODE] - 500) * 2;
         rcArmSwitchActive = (uint8_t)(ibusL_captured_value[IBUS_CH_ARM] > IBUS_ARM_THRESHOLD);
       #else
         input1[inIdx].raw = commandL.steer;
@@ -887,8 +899,9 @@ void readInputRaw(void) {
           ibusR_captured_value[(i/2)] = CLAMP(commandR.channels[i] + (commandR.channels[i+1] << 8) - 1000, 0, INPUT_MAX); // 1000-2000 -> 0-1000
         }
         input1[inIdx].raw = (ibusR_captured_value[IBUS_CH_STEER] - 500) * 2;
-        input2[inIdx].raw = (ibusR_captured_value[IBUS_CH_SPEED] - 500) * 2;
-        swc_value = (ibusR_captured_value[7] - 500) * 2;  // SWC on channel 8 (index 7)
+        rcGyroModeSwitchActive = (uint8_t)(ibusR_captured_value[IBUS_CH_GYRO_MODE] > IBUS_GYRO_MODE_THRESHOLD);
+        input2[inIdx].raw = (ibusR_captured_value[rcGyroModeSwitchActive ? IBUS_CH_GYRO_SPEED : IBUS_CH_SPEED] - 500) * 2;
+        swc_value = (ibusR_captured_value[IBUS_CH_GYRO_MODE] - 500) * 2;
         rcArmSwitchActive = (uint8_t)(ibusR_captured_value[IBUS_CH_ARM] > IBUS_ARM_THRESHOLD);
       #else
         input1[inIdx].raw = commandR.steer;
@@ -1140,23 +1153,41 @@ void usart2_rx_check(void)
   }
   #endif // DEBUG_SERIAL_USART2
 
-  #if defined(CONTROL_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART2)
+  #if defined(CONTROL_SERIAL_USART2)
   uint8_t *ptr;	
   if (pos != old_pos) {                                                 // Check change in received data
     ptr = (uint8_t *)&commandL_raw;                                     // Initialize the pointer with command_raw address
     if (pos > old_pos && (pos - old_pos) == commandL_len) {             // "Linear" buffer mode: check if current position is over previous one AND data length equals expected length
       memcpy(ptr, &rx_buffer_L[old_pos], commandL_len);                 // Copy data. This is possible only if command_raw is contiguous! (meaning all the structure members have the same size)
-      usart_process_command(&commandL_raw, &commandL, 2);               // Process data
+      usart_process_control_command(&commandL_raw, &commandL, 2);       // Process data
     } else if ((rx_buffer_L_len - old_pos + pos) == commandL_len) {     // "Overflow" buffer mode: check if data length equals expected length
       memcpy(ptr, &rx_buffer_L[old_pos], rx_buffer_L_len - old_pos);    // First copy data from the end of buffer
       if (pos > 0) {                                                    // Check and continue with beginning of buffer
         ptr += rx_buffer_L_len - old_pos;                               // Move to correct position in command_raw
         memcpy(ptr, &rx_buffer_L[0], pos);                              // Copy remaining data
       }
-      usart_process_command(&commandL_raw, &commandL, 2);               // Process data
+      usart_process_control_command(&commandL_raw, &commandL, 2);       // Process data
     }
   }
-  #endif // CONTROL_SERIAL_USART2 || GYRO_CORRECTION_SERIAL_USART2
+  #endif // CONTROL_SERIAL_USART2
+
+  #if defined(GYRO_CORRECTION_SERIAL_USART2)
+  uint8_t *gyro_ptr;
+  if (pos != old_pos) {
+    gyro_ptr = (uint8_t *)&gyroCommandL_raw;
+    if (pos > old_pos && (pos - old_pos) == gyroCommandL_len) {
+      memcpy(gyro_ptr, &rx_buffer_L[old_pos], gyroCommandL_len);
+      usart_process_gyro_command(&gyroCommandL_raw, &gyroCommandL, 2);
+    } else if ((rx_buffer_L_len - old_pos + pos) == gyroCommandL_len) {
+      memcpy(gyro_ptr, &rx_buffer_L[old_pos], rx_buffer_L_len - old_pos);
+      if (pos > 0) {
+        gyro_ptr += rx_buffer_L_len - old_pos;
+        memcpy(gyro_ptr, &rx_buffer_L[0], pos);
+      }
+      usart_process_gyro_command(&gyroCommandL_raw, &gyroCommandL, 2);
+    }
+  }
+  #endif // GYRO_CORRECTION_SERIAL_USART2
 
   #ifdef SIDEBOARD_SERIAL_USART2
   uint8_t *ptr;	
@@ -1208,23 +1239,41 @@ void usart3_rx_check(void)
   }
   #endif // DEBUG_SERIAL_USART3
 
-  #if defined(CONTROL_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART3)
+  #if defined(CONTROL_SERIAL_USART3)
   uint8_t *ptr;
   if (pos != old_pos) {                                                 // Check change in received data
     ptr = (uint8_t *)&commandR_raw;                                     // Initialize the pointer with command_raw address
     if (pos > old_pos && (pos - old_pos) == commandR_len) {             // "Linear" buffer mode: check if current position is over previous one AND data length equals expected length
       memcpy(ptr, &rx_buffer_R[old_pos], commandR_len);                 // Copy data. This is possible only if command_raw is contiguous! (meaning all the structure members have the same size)
-      usart_process_command(&commandR_raw, &commandR, 3);               // Process data
+      usart_process_control_command(&commandR_raw, &commandR, 3);       // Process data
     } else if ((rx_buffer_R_len - old_pos + pos) == commandR_len) {     // "Overflow" buffer mode: check if data length equals expected length
       memcpy(ptr, &rx_buffer_R[old_pos], rx_buffer_R_len - old_pos);    // First copy data from the end of buffer
       if (pos > 0) {                                                    // Check and continue with beginning of buffer
         ptr += rx_buffer_R_len - old_pos;                               // Move to correct position in command_raw
         memcpy(ptr, &rx_buffer_R[0], pos);                              // Copy remaining data
       }
-      usart_process_command(&commandR_raw, &commandR, 3);               // Process data
+      usart_process_control_command(&commandR_raw, &commandR, 3);       // Process data
     }
   }
-  #endif // CONTROL_SERIAL_USART3 || GYRO_CORRECTION_SERIAL_USART3
+  #endif // CONTROL_SERIAL_USART3
+
+  #if defined(GYRO_CORRECTION_SERIAL_USART3)
+  uint8_t *gyro_ptr;
+  if (pos != old_pos) {
+    gyro_ptr = (uint8_t *)&gyroCommandR_raw;
+    if (pos > old_pos && (pos - old_pos) == gyroCommandR_len) {
+      memcpy(gyro_ptr, &rx_buffer_R[old_pos], gyroCommandR_len);
+      usart_process_gyro_command(&gyroCommandR_raw, &gyroCommandR, 3);
+    } else if ((rx_buffer_R_len - old_pos + pos) == gyroCommandR_len) {
+      memcpy(gyro_ptr, &rx_buffer_R[old_pos], rx_buffer_R_len - old_pos);
+      if (pos > 0) {
+        gyro_ptr += rx_buffer_R_len - old_pos;
+        memcpy(gyro_ptr, &rx_buffer_R[0], pos);
+      }
+      usart_process_gyro_command(&gyroCommandR_raw, &gyroCommandR, 3);
+    }
+  }
+  #endif // GYRO_CORRECTION_SERIAL_USART3
 
   #ifdef SIDEBOARD_SERIAL_USART3
   uint8_t *ptr;
@@ -1298,8 +1347,8 @@ void usart_process_debug(uint8_t *userCommand, uint32_t len)
  * Process command Rx data
  * - if the command_in data is valid (correct START_FRAME and checksum) copy the command_in to command_out
  */
-#if defined(CONTROL_SERIAL_USART2) || defined(CONTROL_SERIAL_USART3) || defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
-void usart_process_command(SerialCommand *command_in, SerialCommand *command_out, uint8_t usart_idx)
+#if defined(CONTROL_SERIAL_USART2) || defined(CONTROL_SERIAL_USART3)
+void usart_process_control_command(ControlSerialCommand *command_in, ControlSerialCommand *command_out, uint8_t usart_idx)
 {
   #ifdef CONTROL_IBUS
     uint16_t ibus_chksum;
@@ -1363,15 +1412,39 @@ void usart_process_command(SerialCommand *command_in, SerialCommand *command_out
 #endif
 
 #if defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
+void usart_process_gyro_command(GyroSerialCommand *command_in, GyroSerialCommand *command_out, uint8_t usart_idx)
+{
+  uint16_t checksum;
+  if (command_in->start == SERIAL_START_FRAME) {
+    checksum = (uint16_t)(command_in->start ^ command_in->steer ^ command_in->speed);
+    if (command_in->checksum == checksum) {
+      *command_out = *command_in;
+      if (usart_idx == 2) {
+        #ifdef GYRO_CORRECTION_SERIAL_USART2
+        timeoutFlgSerialGyro_L = 0;
+        timeoutCntSerialGyro_L = 0;
+        #endif
+      } else if (usart_idx == 3) {
+        #ifdef GYRO_CORRECTION_SERIAL_USART3
+        timeoutFlgSerialGyro_R = 0;
+        timeoutCntSerialGyro_R = 0;
+        #endif
+      }
+    }
+  }
+}
+#endif
+
+#if defined(GYRO_CORRECTION_SERIAL_USART2) || defined(GYRO_CORRECTION_SERIAL_USART3)
 uint8_t gyroCorrectionIsActive(void)
 {
   #if defined(GYRO_CORRECTION_SERIAL_USART2)
-    if (!timeoutFlgSerialGyro_L && commandL.speed > 0) {
+    if (!timeoutFlgSerialGyro_L && gyroCommandL.speed > 0) {
       return 1;
     }
   #endif
   #if defined(GYRO_CORRECTION_SERIAL_USART3)
-    if (!timeoutFlgSerialGyro_R && commandR.speed > 0) {
+    if (!timeoutFlgSerialGyro_R && gyroCommandR.speed > 0) {
       return 1;
     }
   #endif
@@ -1385,10 +1458,10 @@ int16_t gyroCorrectionGet(void)
   }
 
   #if defined(GYRO_CORRECTION_SERIAL_USART2)
-    return CLAMP(commandL.steer, -GYRO_CORRECTION_MAX, GYRO_CORRECTION_MAX);
+    return CLAMP(gyroCommandL.steer, -GYRO_CORRECTION_MAX, GYRO_CORRECTION_MAX);
   #endif
   #if defined(GYRO_CORRECTION_SERIAL_USART3)
-    return CLAMP(commandR.steer, -GYRO_CORRECTION_MAX, GYRO_CORRECTION_MAX);
+    return CLAMP(gyroCommandR.steer, -GYRO_CORRECTION_MAX, GYRO_CORRECTION_MAX);
   #endif
   return 0;
 }
