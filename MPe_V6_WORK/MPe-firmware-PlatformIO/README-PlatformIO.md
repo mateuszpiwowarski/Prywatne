@@ -10,6 +10,7 @@ Ten katalog jest portem oryginalnego projektu Arduino z archiwum `MPe_V6_open_so
 ## Najwazniejsze pliki
 - `platformio.ini` - glowna konfiguracja PlatformIO: plytka, framework, predkosc monitora i flagi buildu.
 - `README-PlatformIO.md` - ten opis projektu.
+- `README-Customer.md` - szybka instrukcja dla klienta: wybor profilu, upload i recovery EEPROM.
 - `README-original.md` - krotka informacja z oryginalnego projektu.
 
 ## Mapa projektu
@@ -67,6 +68,8 @@ Projekt kompiluje sie poleceniem:
 C:\Users\mpiwowarski\.platformio\penv\Scripts\pio.exe run
 ```
 
+Do codziennego uzycia i serwisu profili `3000W / 6000W / 10000W` zajrzyj do `README-Customer.md`.
+
 Monitor portu szeregowego:
 
 ```powershell
@@ -87,3 +90,8 @@ monitor_port = COM5
   build zakonczony sukcesem dla srodowiska `uno`.
 - Aktualne zuzycie Flash jest bardzo wysokie:
   okolo `98.7%`.
+- Jesli upload przechodzi, ale weryfikacja pada od adresu `0x7800`, to plytka ma najpewniej stary bootloader Nano z limitem programu `30720 B`.
+- W takiej sytuacji firmware z tego repo (`31850 B` w ostatnim buildzie) nie zmiesci sie na takim bootloaderze.
+- Masz wtedy 2 drogi:
+  `1.` wgrac bootloader Uno / Optiboot przez ISP i zostac przy `env:uno`,
+  `2.` zmniejszyc firmware ponizej `30720 B` i budowac pod `env:nano_old_bootloader`.

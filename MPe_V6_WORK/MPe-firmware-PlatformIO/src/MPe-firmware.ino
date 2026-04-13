@@ -240,8 +240,18 @@ void setup()
 #ifndef INITIAL
   else
   {
-    while (true)
-      ;
+    recoverEEPROM();
+    loadData();
+
+#ifdef OLED1
+    display.clearDisplay();
+    display.setFont();
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+    display.setCursor(11, 0);
+    display.println("I?I; BK");
+    display.display();
+#endif
   }
 #endif
 #ifdef INITIAL

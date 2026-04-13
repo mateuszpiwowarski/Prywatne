@@ -22,6 +22,13 @@
 
 #define FIRMWARE_VERSION 6010
 #define FIRST_TIME_CODE 12346
+#define PROFILE_ID_3000W 1
+#define PROFILE_ID_6000W 2
+#define PROFILE_ID_10000W 3
+
+#ifndef EEPROM_RECOVERY_PROFILE_ID
+#define EEPROM_RECOVERY_PROFILE_ID PROFILE_ID_3000W
+#endif
 
 // #define INITIAL // Required for new hardware - stores eeprom values and first time CODE)
 // #define INIT_3000W
@@ -35,9 +42,7 @@
 // CONFIG
 #define OLED1 // Enable Oled Display for SSD1306 128x32 0,91"
 
-#ifdef OLED1
 #define CONFIG_MENU // Enable built-in Configuration screen/menu (using ~8% of memory !!!)
-#endif
 
 #define PAS // Enable PAS support // using ~12% of memory
 // #define MTG // Adds Minutes To Go and moto-hours screen //using ~4% of memory
@@ -164,7 +169,7 @@
 #define ADR_VOL_DIV 214
 #define ADR_CUR_SENSOR_OK 216
 #define ADR_CUR_PROT 218
-// #define	empty 220
+#define ADR_PROFILE_ID 220
 // #define	empty 222
 // #define	empty 224
 #define ADR_TOT_MIN 226

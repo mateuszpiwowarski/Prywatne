@@ -17,8 +17,19 @@
  * Copyright (C) 2022 Marek Przybylak
  */
 
-void saveData()
+static unsigned long lastAutoSaveMs = 0;
+const unsigned long AUTO_SAVE_INTERVAL_MS = 30000;
+
+static void saveDataImpl(bool force)
 {
+  if (!force)
+  {
+    unsigned long now = millis();
+    if ((now - lastAutoSaveMs) < AUTO_SAVE_INTERVAL_MS)
+      return;
+    lastAutoSaveMs = now;
+  }
+
   EEPROM.updateFloat(ADRDIST, dist);
   EEPROM.updateFloat(ADRWHUSED, Wh_used);
   EEPROM.updateFloat(ADRVMAX, vmax);
@@ -39,6 +50,16 @@ void saveData()
   EEPROM.updateFloat(ADRMVTIMEMTG, moving_time_mtg);
   EEPROM.updateFloat(ADRTOTMH, total_mh);
 #endif
+}
+
+void saveData()
+{
+  saveDataImpl(false);
+}
+
+void saveDataForce()
+{
+  saveDataImpl(true);
 }
 
 #ifdef INITIAL
@@ -68,6 +89,7 @@ void initialConfigSave()
   EEPROM.updateInt(ADR_WATCHDOGRESET, 0);
 
 #ifdef INIT_3000W
+  EEPROM.updateInt(ADR_PROFILE_ID, PROFILE_ID_3000W);
 
   EEPROM.updateInt(ADR_ASSISTMODE, 3);
   EEPROM.updateInt(ADR_BATCAP_AH, 192);
@@ -197,6 +219,7 @@ void initialConfigSave()
 #endif
 
 #ifdef INIT_10000W
+  EEPROM.updateInt(ADR_PROFILE_ID, PROFILE_ID_10000W);
 
   EEPROM.updateInt(ADR_ASSISTMODE, 3);
   EEPROM.updateInt(ADR_BATCAP_AH, 440);
@@ -326,6 +349,7 @@ void initialConfigSave()
 #endif
 
 #ifdef INIT_6000W
+  EEPROM.updateInt(ADR_PROFILE_ID, PROFILE_ID_6000W);
 
   EEPROM.updateInt(ADR_ASSISTMODE, 5);
   EEPROM.updateInt(ADR_BATCAP_AH, 400);

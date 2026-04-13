@@ -32,5 +32,4 @@ void enable_watchdog()
 ISR(WDT_vect)
 {
   EEPROM.updateInt(ADR_WATCHDOGRESET, 1);
-  saveData();
 }

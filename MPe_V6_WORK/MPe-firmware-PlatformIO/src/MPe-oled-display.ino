@@ -90,6 +90,34 @@ void setFont2WHITE()
   display.setTextColor(WHITE);
 }
 
+void beginSideLabels()
+{
+  display.setRotation(3);
+  display.setTextSize(1);
+}
+
+void endSideLabels()
+{
+  display.setRotation(0);
+}
+
+void printSideLabel(int x, int y, const char *txt)
+{
+  display.setCursor(x, y);
+  display.println(txt);
+}
+
+void printFourSideLabels(const char *topLeft, const char *downLeft, const char *topRight, const char *downRight,
+                         int topLeftX, int downLeftX, int topRightX, int downRightX)
+{
+  beginSideLabels();
+  printSideLabel(topLeftX, 0, topLeft);
+  printSideLabel(downLeftX, 0, downLeft);
+  printSideLabel(topRightX, 119, topRight);
+  printSideLabel(downRightX, 119, downRight);
+  endSideLabels();
+}
+
 void screen1()
 {
   display.setFont();
@@ -131,9 +159,7 @@ void screen1()
 
   display.println(txt);
 
-  // Descriptions
-  display.setTextSize(1);
-  display.setRotation(3);
+  beginSideLabels();
 
   // SPEED UNIT
   display.setCursor(0, 0);
@@ -161,7 +187,7 @@ void screen1()
 #endif
   }
 
-  display.setRotation(0);
+  endSideLabels();
   display.setFont(&DejaVu_LGC_Sans_Mono_Bold_20); // speed
   display.setTextSize(2);
   display.setCursor(10, 32);
@@ -217,31 +243,7 @@ void screen2()
   display.setCursor(intAlignRight(moving_time), 16);
   display.println(moving_time, 0);
 
-  // Descriptions
-  display.setRotation(3);
-  display.setTextSize(1);
-
-  // TOP LEFT
-  display.setCursor(19, 0);
-  // display.println("MX");
-  display.println("@("); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // DOWN LEFT
-  display.setCursor(3, 0);
-  // display.println("AV");
-  display.println("A:"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // TOP RIGHT
-  display.setCursor(19, 119);
-  // display.println("TR");
-  display.println(";="); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // DOWN RIGHT
-  display.setCursor(3, 119);
-  // display.println("MT");
-  display.println("@;"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  display.setRotation(0);
+  printFourSideLabels("@(", "A:", ";=", "@;", 19, 3, 19, 3);
 }
 
 void screen3()
@@ -271,30 +273,7 @@ void screen3()
   display.setCursor(intAlignRight(powermax), 16);
   display.println(powermax, 0);
 
-  // Descriptions
-  display.setRotation(3);
-  display.setTextSize(1);
-
-  // TOP LEFT
-  display.setCursor(22, 0);
-  // display.println("U");
-  display.println(")"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // DOWN LEFT
-  display.setCursor(6, 0);
-  display.println("I"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // TOP RIGHT
-  display.setCursor(22, 119);
-  // display.println("P");
-  display.println(">"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // DOWN RIGHT
-  display.setCursor(3, 119);
-  // display.println("PM");
-  display.println(">@"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  display.setRotation(0);
+  printFourSideLabels(")", "I", ">", ">@", 22, 6, 22, 3);
 }
 
 void screen4()
@@ -317,31 +296,7 @@ void screen4()
   display.setCursor(floatAlignRight(mah_used / 1000), 16);
   display.println(mah_used / 1000, 1);
 
-  // Descriptions
-  display.setRotation(3);
-  display.setTextSize(1);
-
-  // TOP LEFT
-  display.setCursor(19, 0);
-  // display.println("IM");
-  display.println("I@"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // DOWN LEFT
-  display.setCursor(3, 0);
-  // display.println("WK");
-  display.println("+K"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // TOP RIGHT
-  display.setCursor(19, 119);
-  // display.println("WU");
-  display.println("+)"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // DOWN RIGHT
-  display.setCursor(3, 119);
-  // display.println("AU");
-  display.println("A)"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  display.setRotation(0);
+  printFourSideLabels("I@", "+K", "+)", "A)", 19, 3, 19, 3);
 }
 
 void screen5()
@@ -364,31 +319,7 @@ void screen5()
   display.setCursor(intAlignRight(numberCharges()), 16);
   display.println(numberCharges());
 
-  // Descriptions
-  display.setRotation(3);
-  display.setTextSize(1);
-
-  // TOP LEFT
-  display.setCursor(19, 0);
-  // display.println("T1");
-  display.println(";1"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // DOWN LEFT
-  display.setCursor(3, 0);
-  // display.println("T2");
-  display.println(";2"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // TOP RIGHT
-  display.setCursor(19, 119);
-  // display.println("DS");
-  display.println("D<"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // DOWN RIGHT
-  display.setCursor(3, 119);
-  // display.println("NC");
-  display.println("?C"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  display.setRotation(0);
+  printFourSideLabels(";1", ";2", "D<", "?C", 19, 3, 19, 3);
 }
 
 #endif
@@ -406,19 +337,10 @@ void screen_MhWh()
   display.setCursor(11, 16);
   display.println(whhour(), 0);
 
-  // Descriptions
-  display.setRotation(3);
-  display.setTextSize(1);
-
-  // TOP LEFT
-  display.setCursor(19, 0);
-  display.println("@H"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  // DOWN LEFT
-  display.setCursor(3, 0);
-  display.println("+H"); // Not used characters removed from glcdfont.c / actual characters changed their position
-
-  display.setRotation(0);
+  beginSideLabels();
+  printSideLabel(19, 0, "@H");
+  printSideLabel(3, 0, "+H");
+  endSideLabels();
 }
 #endif
 

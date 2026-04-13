@@ -22,6 +22,20 @@ int16_t getThrottleInputmV()
   return ads.readADC_SingleEnded(PIN_THROTTLE_IN) * 0.01875;
 }
 
+int updateSpeedFactorFromSpeed(int spd_max_min5, int spd_max)
+{
+  int ramp = EEPROM.readInt(ADR_SPEEDFACTOR_RAMP_UP);
+  int set = int(mapConstrain(int(speed * 10), spd_max_min5 * 10, spd_max * 10, 100, EEPROM.readInt(ADR_SPEEDFACTORMIN)));
+  return valueDelay(speedFactor, set, ramp, ramp, 1);
+}
+
+#ifdef PAS
+float updatePidSetWithRamp(int set, int ramp_up_dwn)
+{
+  return float(valueDelay(int(pPID_Set), set, ramp_up_dwn, ramp_up_dwn, 2));
+}
+#endif
+
 void setThrottle()
 {
 #ifdef PAS
@@ -209,13 +223,10 @@ void setThrottle()
             power = EEPROM.readInt(ADR_LEGALLIMIT_POWER);
         }
 
-        ramp_up_dwn = EEPROM.readInt(ADR_SPEEDFACTOR_RAMP_UP);
-
-        set = int(mapConstrain(int(speed * 10), spd_max_min5 * 10, spd_max * 10, 100, EEPROM.readInt(ADR_SPEEDFACTORMIN)));
-        speedFactor = valueDelay(speedFactor, set, ramp_up_dwn, ramp_up_dwn, 1);
+        speedFactor = updateSpeedFactorFromSpeed(spd_max_min5, spd_max);
 
         ramp_up_dwn = EEPROM.readInt(ADR_RAMP_UP_PAS_1 + assistmodeadd);
-        set = int(mapConstrain(getCadence(), cadence_min, cadence_max, 0, power) * (speedFactor / 100.0));
+        set = int(mapConstrain(cadence, cadence_min, cadence_max, 0, power) * (speedFactor / 100.0));
         // SET POWER FROM CADENCE AND SPEED - END
 
         // SET POWER FROM TORQUE SENSOR, CADENCE AND SPEED - START
@@ -264,7 +275,7 @@ void setThrottle()
         // PAS BOOST END
 
         // Finally set the PID for PAS
-        pPID_Set = float(valueDelay(int(pPID_Set), set, ramp_up_dwn, ramp_up_dwn, 2));
+        pPID_Set = updatePidSetWithRamp(set, ramp_up_dwn);
       }
       else
         pPID_Set = 0;
@@ -288,15 +299,12 @@ void setThrottle()
       if (power > 2000)
         power = 2000;
 
-      ramp_up_dwn = EEPROM.readInt(ADR_SPEEDFACTOR_RAMP_UP);
-
-      set = int(mapConstrain(int(speed * 10), spd_max_min5 * 10, spd_max * 10, 100, EEPROM.readInt(ADR_SPEEDFACTORMIN)));
-      speedFactor = valueDelay(speedFactor, set, ramp_up_dwn, ramp_up_dwn, 1);
+      speedFactor = updateSpeedFactorFromSpeed(spd_max_min5, spd_max);
 
       ramp_up_dwn = EEPROM.readInt(ADR_CRUISE_CONTROL_POWER_RAMP_UP);
       set = int(power * (speedFactor / 100.0));
 
-      pPID_Set = float(valueDelay(int(pPID_Set), set, ramp_up_dwn, ramp_up_dwn, 2));
+      pPID_Set = updatePidSetWithRamp(set, ramp_up_dwn);
 
       break;
 #endif

@@ -128,8 +128,11 @@ float whkm()
 
 int whkm_dtg()
 {
+  if (trip_dtg == 0.0)
+    return 0;
+
   int whkm = int(Wh_used_dtg / trip_dtg);
-  if (isinf(whkm))
+  if (whkm < 0)
     whkm = 0;
 
   return whkm;
@@ -137,10 +140,11 @@ int whkm_dtg()
 
 int distToGo()
 {
-
+  int whkmValue = whkm_dtg();
   float dtg = 0.0;
 
-  dtg = (EEPROM.readInt(ADR_BATCAP_WH) - Wh_used) / whkm_dtg();
+  if (whkmValue > 0)
+    dtg = (EEPROM.readInt(ADR_BATCAP_WH) - Wh_used) / whkmValue;
 
   if (trip_dtg > 4.0)
   {
@@ -153,7 +157,7 @@ int distToGo()
   if (last_dtg > 0 && trip_dtg < 1.0)
     dtg = last_dtg;
 
-  if (isinf(dtg) || dtg > 999)
+  if (dtg > 999)
     dtg = 999;
 
   if (dtg < 3)
@@ -235,13 +239,13 @@ void resetBattery()
 
   Wh_used = batWh - (batWh * percent);
   mah_used = batAh - (batAh * percent);
-  saveData();
+  saveDataForce();
 #endif
 
 #ifdef TESTING
   Wh_used = 0.0;
   mah_used = 0.0;
-  saveData();
+  saveDataForce();
 #endif
 }
 
@@ -263,7 +267,7 @@ void zeroTrip()
   last_mtg = 0.0;
 #endif
 
-  saveData();
+  saveDataForce();
 }
 
 int getCfgAddress(int address)
