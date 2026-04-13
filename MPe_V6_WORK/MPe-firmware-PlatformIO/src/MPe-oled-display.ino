@@ -192,20 +192,22 @@ void screen1()
   display.setTextSize(2);
   display.setCursor(10, 32);
 
-  if (int(speed) < 10)
+  int displaySpeed = int(speed);
+
+  if (displaySpeed < 10)
     display.print(0);
 
-  if (speed >= 100)
+  if (displaySpeed >= 100)
   {
-    speed = int(speed) % 100;
+    displaySpeed = displaySpeed % 100;
     display.fillRect(0, 0, 8, 32, BLACK);
     display.setCursor(-10, 32);
     display.print(1);
     display.setCursor(10, 32);
-    if (speed < 10)
+    if (displaySpeed < 10)
       display.print(0);
   }
-  display.println(int(speed));
+  display.println(displaySpeed);
 
   display.fillRect(60, 30, 1, 2, WHITE); // coma
 

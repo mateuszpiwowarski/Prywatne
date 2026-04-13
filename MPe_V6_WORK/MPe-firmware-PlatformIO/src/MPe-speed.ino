@@ -50,12 +50,17 @@ void mot_rot()
 
 void speed_one()
 {
+  unsigned long now = millis();
+  unsigned long pulse_time = now - timer_speed_one;
+
+  if (pulse_time < MIN_SPEED_PULSE_INTERVAL_MS)
+    return;
+
   if (!speed_impulse) // debouncing
-    speedOneimpulseTime = millis() - timer_speed_one;
+    speedOneimpulseTime = pulse_time;
 
   speed_impulse = true;
-
-  timer_speed_one = millis();
+  timer_speed_one = now;
 }
 
 
@@ -68,7 +73,7 @@ void speed_one_check()
 
       stopped = false;
 
-      detachInterrupt(PIN_DSPEED);
+      detachInterrupt(digitalPinToInterrupt(PIN_DSPEED));
       speed_impulse = false;
       attachInterrupt(digitalPinToInterrupt(PIN_DSPEED), speed_one, FALLING);
 
