@@ -130,9 +130,9 @@ struct TempSensorConfig {
 
 static const TempSensorConfig TEMP_SENSORS[TEMP_SENSOR_COUNT] = {
     {"T1_E", 35, 85.0f, 5.0f},
-    // GPIO33 i GPIO32 sa stabilniejszymi wejsciami ADC niz piny strapujace GPIO2/GPIO0.
+    // GPIO33 i GPIO36 sa stabilniejszymi wejsciami ADC niz piny strapujace GPIO2/GPIO0.
     {"T2_SE", 33, 55.0f, 5.0f},
-    {"T2S", 32, 55.0f, 5.0f},
+    {"T2S", 36, 55.0f, 5.0f},
 };
 
 // Zmienne stanu
