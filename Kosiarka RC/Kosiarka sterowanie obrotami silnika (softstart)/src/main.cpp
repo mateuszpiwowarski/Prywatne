@@ -31,6 +31,7 @@ static const int X9C_OUTPUT_MAX_STEP = 85;
 static const int X9C_DISPLAY_FULL_SCALE_STEP = 27;
 static const int RC_INPUT_PIN = 27;
 static const int RC_RELAY_INPUT_PIN = 4;
+static const int GYRO_STEER_INPUT_PIN = 35;
 static const int RELAY_OUTPUT_PIN = 13;
 static const bool RELAY_ACTIVE_HIGH = true;
 static const uint16_t RC_PULSE_VALID_MIN_US = 900;
@@ -53,6 +54,8 @@ static const uint32_t GYRO_MODE_PULSE_READ_TIMEOUT_US = 30000;
 static const uint16_t GYRO_MODE_ON_THRESHOLD_US = 1600;
 static const uint16_t GYRO_MODE_OFF_THRESHOLD_US = 1400;
 static const uint16_t GYRO_MODE_READ_INTERVAL_MS = 100;
+static const uint16_t GYRO_STEER_DEADBAND_US = 80;
+static const float GYRO_HEADING_ADJUST_RATE_DPS = 70.0f;
 
 // BMI160 - zyroskop do prostego trybu "heading hold"
 static const int BMI160_SDA_PIN = 21;
@@ -150,10 +153,10 @@ struct TempSensorConfig {
 };
 
 static const TempSensorConfig TEMP_SENSORS[TEMP_SENSOR_COUNT] = {
-    {"T1_E", 35, 85.0f, 5.0f},
+    {"T1_OFF", -1, 85.0f, 5.0f},
     // GPIO33 i GPIO36 sa stabilniejszymi wejsciami ADC niz piny strapujace GPIO2/GPIO0.
-    {"T2_SE", 33, 55.0f, 5.0f},
-    {"T2S", 36, 55.0f, 5.0f},
+    {"T1_E", 33, 55.0f, 5.0f},
+    {"T2_C", 36, 55.0f, 5.0f},
 };
 
 // Zmienne stanu
@@ -182,6 +185,7 @@ GyroHoldState gyroHold;
 RcPulseCapture rcInputCapture = {RC_INPUT_PIN, 0, 0, 0};
 RcPulseCapture gyroModeCapture = {GYRO_MODE_RC_PIN, 0, 0, 0};
 RcPulseCapture relayInputCapture = {RC_RELAY_INPUT_PIN, 0, 0, 0};
+RcPulseCapture gyroSteerCapture = {GYRO_STEER_INPUT_PIN, 0, 0, 0};
 
 void printBootStage(const char* message) {
     Serial.print("[BOOT] ");
@@ -217,9 +221,11 @@ String formatTemperatureLabel(float tempC) {
 // =========================
 // FUNKCJE - Obsługa wyświetlacza
 // =========================
+uint16_t readGyroSteerPulseUs();
+
 void tftInit() {
     tft.init();
-    tft.setRotation(1);  // 0=portrait, 1=landscape, 2=reverse portrait, 3=reverse landscape
+    tft.setRotation(1);  // Dla panelu 240x280 daje uklad landscape 280x240.
     tft.fillScreen(TFT_BG_COLOR);
     tft.setTextColor(TFT_TEXT_COLOR, TFT_BG_COLOR);
     tft.setTextSize(1);
@@ -245,9 +251,13 @@ void tftShowDiagnosticScreen(const float temps[], uint32_t color, const char* co
         tft.setCursor(8, 52 + (i * 16));
         tft.print(TEMP_SENSORS[i].label);
         tft.print(": ");
-        tft.print(isTemperatureValid(temps[i]) ? String(temps[i], 1) : String("--.-"));
-        tft.print("C ");
-        tft.print(lastTempAdcRaw[i]);
+        if (TEMP_SENSORS[i].pin < 0) {
+            tft.print("OFF");
+        } else {
+            tft.print(isTemperatureValid(temps[i]) ? String(temps[i], 1) : String("--.-"));
+            tft.print("C ");
+            tft.print(lastTempAdcRaw[i]);
+        }
     }
 
     tft.setCursor(8, 104);
@@ -286,7 +296,11 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     static int lastRelayState = -1;
     static int lastGyroState = -1;
     static int lastGyroSwitchState = -1;
+    static int lastGyroSwitchPulseUs = -1;
+    static int lastGyroSteerPulseUs = -1;
     static int lastHeadingDeciDeg = 100000;
+    static int lastTargetHeadingDeciDeg = 100000;
+    static int lastHeadingErrorDeciDeg = 100000;
     static int lastCorrectionDeci = 100000;
     const uint16_t panel = tft.color565(20, 24, 34);
     const uint16_t panelSoft = tft.color565(38, 44, 58);
@@ -304,7 +318,7 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     int tempDeciC[TEMP_SENSOR_COUNT];
     bool tempChanged = false;
     for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
-        tempDeciC[i] = (int)roundf(temps[i] * 10.0f);
+        tempDeciC[i] = isTemperatureValid(temps[i]) ? (int)roundf(temps[i] * 10.0f) : -10000;
         if (tempDeciC[i] != lastTempDeciC[i]) {
             tempChanged = true;
         }
@@ -315,91 +329,91 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     const uint16_t startColor = (startState == 0) ? TFT_RED : ((startState == 1) ? startWaitColor : TFT_GREEN);
     const int gyroState = gyroHold.sensorFound ? (gyroHold.holdEnabled ? 2 : 1) : 0;
     const int gyroSwitchState = gyroHold.switchSignalPresent ? 1 : 0;
+    const uint16_t gyroSteerPulseUs = readGyroSteerPulseUs();
     const int headingDeciDeg = (int)roundf(gyroHold.headingDeg * 10.0f);
+    const int targetHeadingDeciDeg = (int)roundf(gyroHold.targetHeadingDeg * 10.0f);
+    const int headingErrorDeciDeg = (int)roundf(gyroHold.headingErrorDeg * 10.0f);
     const int correctionDeci = (int)roundf(gyroHold.correction * 10.0f);
 
     if (!layoutDrawn) {
         tft.fillScreen(TFT_BG_COLOR);
 
-        tft.fillRoundRect(8, 8, 264, 24, 8, panel);
-        tft.drawRoundRect(8, 8, 264, 24, 8, panelSoft);
-        tft.setTextColor(TFT_TEXT_COLOR, panel);
-        tft.drawString("STEROWANIE SILNIKA", 16, 13, 2);
+        tft.fillRoundRect(8, 8, 264, 54, 12, panel);
+        tft.drawRoundRect(8, 8, 264, 54, 12, panelSoft);
 
-        tft.fillRoundRect(8, 40, 128, 72, 12, panel);
-        tft.drawRoundRect(8, 40, 128, 72, 12, accentIn);
+        tft.fillRoundRect(8, 68, 264, 76, 12, panel);
+        tft.drawRoundRect(8, 68, 264, 76, 12, accentTemp);
+
+        tft.fillRoundRect(8, 150, 264, 82, 12, panel);
+        tft.drawRoundRect(8, 150, 264, 82, 12, accentGyro);
+
         tft.setTextColor(textDim, panel);
-        tft.drawString("WEJSCIE", 18, 50, 2);
-
-        tft.fillRoundRect(144, 40, 128, 72, 12, panel);
-        tft.drawRoundRect(144, 40, 128, 72, 12, accentOut);
-        tft.setTextColor(textDim, panel);
-        tft.drawString("WYJSCIE", 154, 50, 2);
-
-        tft.fillRoundRect(8, 240, 264, 28, 10, panel);
-        tft.drawRoundRect(8, 240, 264, 28, 10, accentGyro);
+        tft.drawString("NAPED KOSIARKI", 18, 14, 2);
+        tft.drawString("TEMP / RC", 18, 74, 2);
+        tft.drawString("GYRO / SYSTEM", 18, 156, 2);
 
         layoutDrawn = true;
     }
 
-    if (inputPct != lastInputPct || inputPulseUs != lastInputPulseUs) {
-        tft.fillRect(18, 68, 94, 22, panel);
+    if (inputPct != lastInputPct || inputPulseUs != lastInputPulseUs || outputPct != lastOutputPct || outputStep != lastOutputStep) {
+        tft.fillRoundRect(8, 8, 264, 54, 12, panel);
+        tft.drawRoundRect(8, 8, 264, 54, 12, panelSoft);
+        tft.setTextColor(textDim, panel);
+        tft.drawString("NAPED KOSIARKI", 18, 14, 2);
+
         tft.setTextColor(TFT_TEXT_COLOR, panel);
-        tft.drawString(String(inputPct), 18, 72, 2);
-        tft.drawString("%", 54, 72, 2);
-        tft.fillRect(18, 92, 112, 16, panel);
+        tft.drawString("IN " + String(inputPct) + "%", 18, 32, 2);
+        tft.drawString("OUT " + String(outputPct) + "%", 144, 32, 2);
+
         tft.setTextColor(textDim, panel);
         if (inputPulseUs == 0) {
-            tft.drawString("BRAK RC", 18, 93, 2);
+            tft.drawString("RC BRAK", 18, 46, 2);
         } else {
-            tft.drawString("RC " + String(inputPulseUs) + "us", 18, 93, 2);
+            tft.drawString("RC " + String(inputPulseUs) + "us", 18, 46, 2);
         }
-        tft.fillRoundRect(18, 106, 112, 4, 2, panelSoft);
+        tft.drawString("ST " + String(outputStep), 144, 46, 2);
+
+        tft.fillRoundRect(18, 54, 112, 4, 2, panelSoft);
+        tft.fillRoundRect(146, 54, 112, 4, 2, panelSoft);
         if (barIn > 0) {
-            tft.fillRoundRect(18, 106, barIn, 4, 2, accentIn);
+            tft.fillRoundRect(18, 54, barIn, 4, 2, accentIn);
         }
+        if (barOut > 0) {
+            tft.fillRoundRect(146, 54, barOut, 4, 2, accentOut);
+        }
+
         lastInputPct = inputPct;
         lastInputPulseUs = inputPulseUs;
-    }
-
-    if (outputPct != lastOutputPct || outputStep != lastOutputStep) {
-        tft.fillRect(154, 68, 94, 22, panel);
-        tft.setTextColor(TFT_TEXT_COLOR, panel);
-        tft.drawString(String(outputPct), 154, 72, 2);
-        tft.drawString("%", 190, 72, 2);
-        tft.fillRect(154, 92, 112, 16, panel);
-        tft.setTextColor(textDim, panel);
-        tft.drawString("ST " + String(outputStep), 154, 93, 2);
-        tft.fillRoundRect(154, 106, 112, 4, 2, panelSoft);
-        if (barOut > 0) {
-            tft.fillRoundRect(154, 106, barOut, 4, 2, accentOut);
-        }
         lastOutputPct = outputPct;
         lastOutputStep = outputStep;
     }
 
-    if (tempChanged || maxTempDeciC != lastMaxTempDeciC || thermalShutdownActive != lastThermalShutdown || relayPulseUs != lastRelayPulseUs || (int)relayState != lastRelayState) {
-        tft.fillRoundRect(8, 120, 264, 84, 12, panel);
-        tft.drawRoundRect(8, 120, 264, 84, 12, accentTemp);
+    if (tempChanged || maxTempDeciC != lastMaxTempDeciC || thermalShutdownActive != lastThermalShutdown || relayPulseUs != lastRelayPulseUs || (int)relayState != lastRelayState || gyroHold.switchPulseUs != lastGyroSwitchPulseUs || (int)gyroSteerPulseUs != lastGyroSteerPulseUs) {
+        tft.fillRoundRect(8, 68, 264, 76, 12, panel);
+        tft.drawRoundRect(8, 68, 264, 76, 12, accentTemp);
         tft.setTextColor(textDim, panel);
-        tft.drawString("TEMPERATURY", 18, 126, 2);
+        tft.drawString("TEMP / RC", 18, 74, 2);
         tft.setTextColor(accentTemp, panel);
-        tft.drawString(String(TEMP_SENSORS[0].label) + " " + formatTemperatureLabel(temps[0]), 18, 146, 2);
-        tft.drawString(String(TEMP_SENSORS[1].label) + " " + formatTemperatureLabel(temps[1]), 18, 164, 2);
-        tft.drawString(String(TEMP_SENSORS[2].label) + " " + formatTemperatureLabel(temps[2]), 18, 182, 2);
+        tft.drawString(String(TEMP_SENSORS[1].label) + " " + formatTemperatureLabel(temps[1]), 18, 92, 2);
+        tft.drawString(String(TEMP_SENSORS[2].label) + " " + formatTemperatureLabel(temps[2]), 18, 110, 2);
+        tft.drawString("MAX " + formatTemperatureLabel(maxTemp), 18, 128, 2);
         tft.setTextColor(TFT_TEXT_COLOR, panel);
-        tft.drawString("MAX " + formatTemperatureLabel(maxTemp), 150, 146, 2);
-        tft.drawString(relayState ? "RELAY ON" : "RELAY OFF", 150, 164, 2);
-        if (relayPulseUs == 0) {
-            tft.drawString("SW BRAK", 150, 182, 2);
+        tft.drawString(relayState ? "RELAY ON" : "RELAY OFF", 150, 92, 2);
+        if (gyroHold.switchPulseUs == 0) {
+            tft.drawString("CH8 BRAK", 150, 110, 2);
         } else {
-            tft.drawString("SW " + String(relayPulseUs) + "us", 150, 182, 2);
+            tft.drawString("CH8 " + String(gyroHold.switchPulseUs) + "us", 150, 110, 2);
+        }
+        if (gyroSteerPulseUs == 0) {
+            tft.drawString("CH1 BRAK", 150, 128, 2);
+        } else {
+            tft.drawString("CH1 " + String(gyroSteerPulseUs) + "us", 150, 128, 2);
         }
         tft.setTextColor(thermalShutdownActive ? TFT_ALERT_COLOR : TFT_OK_COLOR, panel);
         if (thermalShutdownActive && thermalShutdownSensorIndex >= 0) {
-            tft.drawString(String("HOT ") + TEMP_SENSORS[thermalShutdownSensorIndex].label, 186, 126, 2);
+            tft.drawString(String("HOT ") + TEMP_SENSORS[thermalShutdownSensorIndex].label, 188, 74, 2);
         } else {
-            tft.drawString("OK", 226, 126, 2);
+            tft.drawString("OK", 236, 74, 2);
         }
         for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
             lastTempDeciC[i] = tempDeciC[i];
@@ -408,49 +422,48 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
         lastThermalShutdown = thermalShutdownActive;
         lastRelayPulseUs = relayPulseUs;
         lastRelayState = relayState ? 1 : 0;
+        lastGyroSwitchPulseUs = gyroHold.switchPulseUs;
+        lastGyroSteerPulseUs = gyroSteerPulseUs;
     }
 
-    if (pwmFreq != lastPwmFreq || (int)displayStartupUnlocked != lastStartupUnlocked || (int)displaySweeping != lastSweeping || startState != lastStartState) {
-        tft.fillRoundRect(8, 212, 264, 22, 8, panel);
-        tft.drawRoundRect(8, 212, 264, 22, 8, panelSoft);
+    if (pwmFreq != lastPwmFreq || (int)displayStartupUnlocked != lastStartupUnlocked || (int)displaySweeping != lastSweeping || startState != lastStartState || gyroState != lastGyroState || gyroSwitchState != lastGyroSwitchState || headingDeciDeg != lastHeadingDeciDeg || targetHeadingDeciDeg != lastTargetHeadingDeciDeg || headingErrorDeciDeg != lastHeadingErrorDeciDeg || correctionDeci != lastCorrectionDeci) {
+        const char* gyroLabel = gyroState == 2 ? "GYRO HOLD" : (gyroState == 1 ? "GYRO READY" : "GYRO OFF");
+        const uint16_t gyroColor = gyroState == 2 ? tft.color565(70, 180, 255) : (gyroState == 1 ? textDim : TFT_ALERT_COLOR);
+
+        tft.fillRoundRect(8, 150, 264, 82, 12, panel);
+        tft.drawRoundRect(8, 150, 264, 82, 12, accentGyro);
         tft.setTextColor(textDim, panel);
-        if (ENABLE_PWM_OUTPUT) {
-            tft.drawString("PWM " + formatFrequencyLabel(pwmFreq), 14, 217, 2);
-            tft.drawString("START", 100, 217, 2);
-            tft.setTextColor(startColor, panel);
-            tft.drawString(startLabel, 142, 217, 2);
-        } else {
-            tft.drawString("X9C RC", 14, 217, 2);
-            tft.drawString("START", 100, 217, 2);
-            tft.setTextColor(startColor, panel);
-            tft.drawString(startLabel, 142, 217, 2);
+        tft.drawString("GYRO / SYSTEM", 18, 156, 2);
+        tft.drawString(ENABLE_PWM_OUTPUT ? (displaySweeping ? "PWM SWEEP" : "PWM MAN") : "X9C DIR", 186, 156, 2);
+
+        tft.setTextColor(gyroColor, panel);
+        tft.drawString(gyroLabel, 18, 176, 2);
+
+        tft.setTextColor(startColor, panel);
+        tft.drawString(String("START ") + startLabel, 174, 176, 2);
+
+        tft.setTextColor(TFT_TEXT_COLOR, panel);
+        tft.drawString("HDG " + String(gyroHold.headingDeg, 1), 18, 196, 2);
+        tft.drawString("TGT " + String(gyroHold.targetHeadingDeg, 1), 134, 196, 2);
+
+        tft.setTextColor(textDim, panel);
+        tft.drawString("ERR " + String(gyroHold.headingErrorDeg, 1), 18, 214, 2);
+        tft.drawString("COR " + String(gyroHold.correction, 1), 134, 214, 2);
+
+        if (!gyroHold.switchSignalPresent) {
+            tft.setTextColor(TFT_ALERT_COLOR, panel);
+            tft.drawString("CH8?", 224, 214, 2);
         }
-        tft.setTextColor(textDim, panel);
-        tft.drawString(ENABLE_PWM_OUTPUT ? (displaySweeping ? "SWEEP" : "MANUAL") : "DIRECT", 206, 217, 2);
+
         lastPwmFreq = pwmFreq;
         lastStartupUnlocked = displayStartupUnlocked ? 1 : 0;
         lastSweeping = displaySweeping ? 1 : 0;
         lastStartState = startState;
-    }
-
-    if (gyroState != lastGyroState || gyroSwitchState != lastGyroSwitchState || headingDeciDeg != lastHeadingDeciDeg || correctionDeci != lastCorrectionDeci) {
-        const char* gyroLabel = gyroState == 2 ? "GYRO HOLD" : (gyroState == 1 ? "GYRO READY" : "GYRO OFF");
-        const uint16_t gyroColor = gyroState == 2 ? tft.color565(70, 180, 255) : (gyroState == 1 ? textDim : TFT_ALERT_COLOR);
-
-        tft.fillRoundRect(8, 240, 264, 28, 10, panel);
-        tft.drawRoundRect(8, 240, 264, 28, 10, accentGyro);
-        tft.setTextColor(gyroColor, panel);
-        tft.drawString(gyroLabel, 14, 247, 2);
-        tft.setTextColor(textDim, panel);
-        tft.drawString("HDG " + String(gyroHold.headingDeg, 1), 104, 247, 2);
-        tft.drawString("COR " + String(gyroHold.correction, 1), 182, 247, 2);
-        if (!gyroHold.switchSignalPresent) {
-            tft.drawString("SW?", 235, 247, 2);
-        }
-
         lastGyroState = gyroState;
         lastGyroSwitchState = gyroSwitchState;
         lastHeadingDeciDeg = headingDeciDeg;
+        lastTargetHeadingDeciDeg = targetHeadingDeciDeg;
+        lastHeadingErrorDeciDeg = headingErrorDeciDeg;
         lastCorrectionDeci = correctionDeci;
     }
 }
@@ -461,6 +474,7 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
 void x9cSetStep(uint8_t targetStep);
 void printStatus(uint16_t inputPulseUs, uint8_t targetStep, const float temps[], float maxTemp, uint16_t relayPulseUs, bool relayState);
 uint16_t readGyroModePulseUs();
+uint16_t readGyroSteerPulseUs();
 void updateGyroModeSwitch();
 bool bmi160Begin();
 bool calibrateBmi160Gyro();
@@ -592,13 +606,25 @@ void IRAM_ATTR handleRelayInputInterrupt() {
     }
 }
 
+void IRAM_ATTR handleGyroSteerInterrupt() {
+    uint32_t nowUs = micros();
+    gyroSteerCapture.lastEdgeUs = nowUs;
+    if (digitalRead(GYRO_STEER_INPUT_PIN)) {
+        gyroSteerCapture.riseUs = nowUs;
+    } else if (gyroSteerCapture.riseUs != 0) {
+        gyroSteerCapture.pulseUs = nowUs - gyroSteerCapture.riseUs;
+    }
+}
+
 void initRcPulseCapture() {
     pinMode(RC_INPUT_PIN, INPUT);
     pinMode(GYRO_MODE_RC_PIN, INPUT);
     pinMode(RC_RELAY_INPUT_PIN, INPUT);
+    pinMode(GYRO_STEER_INPUT_PIN, INPUT);
     attachInterrupt(digitalPinToInterrupt(RC_INPUT_PIN), handleRcInputInterrupt, CHANGE);
     attachInterrupt(digitalPinToInterrupt(GYRO_MODE_RC_PIN), handleGyroModeInterrupt, CHANGE);
     attachInterrupt(digitalPinToInterrupt(RC_RELAY_INPUT_PIN), handleRelayInputInterrupt, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(GYRO_STEER_INPUT_PIN), handleGyroSteerInterrupt, CHANGE);
 }
 
 uint16_t readPulseUs(volatile RcPulseCapture& capture, uint32_t timeoutUs) {
@@ -626,6 +652,10 @@ uint16_t readReceiverPulseUs() {
 
 uint16_t readGyroModePulseUs() {
     return readPulseUs(gyroModeCapture, GYRO_MODE_PULSE_READ_TIMEOUT_US);
+}
+
+uint16_t readGyroSteerPulseUs() {
+    return readPulseUs(gyroSteerCapture, RC_PULSE_READ_TIMEOUT_US);
 }
 
 uint16_t readRelaySwitchPulseUs() {
@@ -690,6 +720,11 @@ bool isInputAtZero(uint16_t pulseUs) {
 }
 
 float readTemperatureSensor(uint8_t sensorIndex) {
+    if (TEMP_SENSORS[sensorIndex].pin < 0) {
+        lastTempAdcRaw[sensorIndex] = 0;
+        return NAN;
+    }
+
     uint32_t adcRawSum = 0;
     uint32_t voltageMvSum = 0;
     for (uint8_t i = 0; i < NTC_SAMPLE_COUNT; i++) {
@@ -1017,6 +1052,15 @@ void updateGyroHeadingHold() {
         return;
     }
 
+    uint16_t steerPulseUs = readGyroSteerPulseUs();
+    if (hasValidReceiverSignal(steerPulseUs)) {
+        float steerNorm = ((float)steerPulseUs - 1500.0f) / 500.0f;
+        if (fabsf(steerNorm) > ((float)GYRO_STEER_DEADBAND_US / 500.0f)) {
+            steerNorm = constrain(steerNorm, -1.0f, 1.0f);
+            gyroHold.targetHeadingDeg = normalizeAngleDeg(gyroHold.targetHeadingDeg + steerNorm * GYRO_HEADING_ADJUST_RATE_DPS * dt);
+        }
+    }
+
     gyroHold.headingErrorDeg = normalizeAngleDeg(gyroHold.targetHeadingDeg - gyroHold.headingDeg);
     gyroHold.correction = constrain(gyroHold.headingErrorDeg * HEADING_HOLD_P_GAIN, -HEADING_HOLD_MAX_CORRECTION, HEADING_HOLD_MAX_CORRECTION);
 }
@@ -1051,31 +1095,27 @@ void printStatus(uint16_t inputPulseUs, uint8_t targetStep, const float temps[],
     Serial.print(targetStep);
     Serial.print(" OUT_STEP=");
     Serial.print(x9cCurrentStep);
-    Serial.print(" T1_E=");
-    if (isTemperatureValid(temps[0])) {
-        Serial.print(temps[0], 1);
-    } else {
-        Serial.print("---.-");
+    for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
+        Serial.print(" ");
+        Serial.print(TEMP_SENSORS[i].label);
+        Serial.print("=");
+        if (TEMP_SENSORS[i].pin < 0) {
+            Serial.print("OFF");
+        } else if (isTemperatureValid(temps[i])) {
+            Serial.print(temps[i], 1);
+            Serial.print("C");
+        } else {
+            Serial.print("---.-C");
+        }
     }
-    Serial.print("C T2_SE=");
-    if (isTemperatureValid(temps[1])) {
-        Serial.print(temps[1], 1);
-    } else {
-        Serial.print("---.-");
-    }
-    Serial.print("C T2S=");
-    if (isTemperatureValid(temps[2])) {
-        Serial.print(temps[2], 1);
-    } else {
-        Serial.print("---.-");
-    }
-    Serial.print("C TMAX=");
+    Serial.print(" TMAX=");
     if (isTemperatureValid(maxTemp)) {
         Serial.print(maxTemp, 1);
+        Serial.print("C");
     } else {
-        Serial.print("---.-");
+        Serial.print("---.-C");
     }
-    Serial.print("C RELAY_SW=");
+    Serial.print(" RELAY_SW=");
     if (relayPulseUs == 0) {
         Serial.print("NO_SIG");
     } else {
@@ -1109,8 +1149,18 @@ void printStatus(uint16_t inputPulseUs, uint8_t targetStep, const float temps[],
         Serial.print(gyroHold.switchPulseUs);
         Serial.print("us");
     }
+    Serial.print(" CH1=");
+    uint16_t gyroSteerPulseUs = readGyroSteerPulseUs();
+    if (gyroSteerPulseUs == 0) {
+        Serial.print("NO_SIG");
+    } else {
+        Serial.print(gyroSteerPulseUs);
+        Serial.print("us");
+    }
     Serial.print(" HDG=");
     Serial.print(gyroHold.headingDeg, 2);
+    Serial.print(" TGT=");
+    Serial.print(gyroHold.targetHeadingDeg, 2);
     Serial.print(" ERR=");
     Serial.print(gyroHold.headingErrorDeg, 2);
     Serial.print(" COR=");
@@ -1243,7 +1293,9 @@ void setup() {
     initBacklight();
     analogReadResolution(12);
     for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
-        analogSetPinAttenuation(TEMP_SENSORS[i].pin, ADC_11db);
+        if (TEMP_SENSORS[i].pin >= 0) {
+            analogSetPinAttenuation(TEMP_SENSORS[i].pin, ADC_11db);
+        }
     }
     if (DIAGNOSTIC_DISPLAY_ONLY) {
         printBootStage("Tryb diagnostyczny TFT");
