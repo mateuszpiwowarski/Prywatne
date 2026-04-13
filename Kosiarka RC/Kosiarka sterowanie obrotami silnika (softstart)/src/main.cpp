@@ -348,8 +348,6 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
         tft.drawRoundRect(8, 150, 264, 82, 12, accentGyro);
 
         tft.setTextColor(textDim, panel);
-        tft.drawString("NAPED KOSIARKI", 18, 14, 2);
-        tft.drawString("TEMP / RC", 18, 74, 2);
         tft.drawString("GYRO / SYSTEM", 18, 156, 2);
 
         layoutDrawn = true;
@@ -358,28 +356,26 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     if (inputPct != lastInputPct || inputPulseUs != lastInputPulseUs || outputPct != lastOutputPct || outputStep != lastOutputStep) {
         tft.fillRoundRect(8, 8, 264, 54, 12, panel);
         tft.drawRoundRect(8, 8, 264, 54, 12, panelSoft);
-        tft.setTextColor(textDim, panel);
-        tft.drawString("NAPED KOSIARKI", 18, 14, 2);
 
         tft.setTextColor(TFT_TEXT_COLOR, panel);
-        tft.drawString("IN " + String(inputPct) + "%", 18, 32, 2);
-        tft.drawString("OUT " + String(outputPct) + "%", 144, 32, 2);
+        tft.drawString("IN " + String(inputPct) + "%", 18, 24, 2);
+        tft.drawString("OUT " + String(outputPct) + "%", 144, 24, 2);
 
         tft.setTextColor(textDim, panel);
         if (inputPulseUs == 0) {
-            tft.drawString("RC BRAK", 18, 46, 2);
+            tft.drawString("RC BRAK", 84, 24, 2);
         } else {
-            tft.drawString("RC " + String(inputPulseUs) + "us", 18, 46, 2);
+            tft.drawString("RC " + String(inputPulseUs) + "us", 84, 24, 2);
         }
-        tft.drawString("ST " + String(outputStep), 144, 46, 2);
+        tft.drawString("ST " + String(outputStep), 224, 24, 2);
 
-        tft.fillRoundRect(18, 54, 112, 4, 2, panelSoft);
-        tft.fillRoundRect(146, 54, 112, 4, 2, panelSoft);
+        tft.fillRoundRect(18, 46, 112, 4, 2, panelSoft);
+        tft.fillRoundRect(146, 46, 112, 4, 2, panelSoft);
         if (barIn > 0) {
-            tft.fillRoundRect(18, 54, barIn, 4, 2, accentIn);
+            tft.fillRoundRect(18, 46, barIn, 4, 2, accentIn);
         }
         if (barOut > 0) {
-            tft.fillRoundRect(146, 54, barOut, 4, 2, accentOut);
+            tft.fillRoundRect(146, 46, barOut, 4, 2, accentOut);
         }
 
         lastInputPct = inputPct;
@@ -391,29 +387,27 @@ void tftPrintStatus(uint16_t inputPulseUs, uint8_t targetStep, uint8_t outputSte
     if (tempChanged || maxTempDeciC != lastMaxTempDeciC || thermalShutdownActive != lastThermalShutdown || relayPulseUs != lastRelayPulseUs || (int)relayState != lastRelayState || gyroHold.switchPulseUs != lastGyroSwitchPulseUs || (int)gyroSteerPulseUs != lastGyroSteerPulseUs) {
         tft.fillRoundRect(8, 68, 264, 76, 12, panel);
         tft.drawRoundRect(8, 68, 264, 76, 12, accentTemp);
-        tft.setTextColor(textDim, panel);
-        tft.drawString("TEMP / RC", 18, 74, 2);
-        tft.setTextColor(accentTemp, panel);
-        tft.drawString(String(TEMP_SENSORS[1].label) + " " + formatTemperatureLabel(temps[1]), 18, 92, 2);
-        tft.drawString(String(TEMP_SENSORS[2].label) + " " + formatTemperatureLabel(temps[2]), 18, 110, 2);
-        tft.drawString("MAX " + formatTemperatureLabel(maxTemp), 18, 128, 2);
+        const bool temp1Hot = isTemperatureValid(temps[1]) && temps[1] >= TEMP_SENSORS[1].shutdownThresholdC;
+        const bool temp2Hot = isTemperatureValid(temps[2]) && temps[2] >= TEMP_SENSORS[2].shutdownThresholdC;
+        const bool maxHot = isTemperatureValid(maxTemp) && maxTemp >= TEMP_SENSORS[1].shutdownThresholdC;
+
+        tft.setTextColor(temp1Hot ? TFT_ALERT_COLOR : accentTemp, panel);
+        tft.drawString(String(TEMP_SENSORS[1].label) + " " + formatTemperatureLabel(temps[1]), 18, 80, 2);
+        tft.setTextColor(temp2Hot ? TFT_ALERT_COLOR : accentTemp, panel);
+        tft.drawString(String(TEMP_SENSORS[2].label) + " " + formatTemperatureLabel(temps[2]), 18, 98, 2);
+        tft.setTextColor(maxHot ? TFT_ALERT_COLOR : accentTemp, panel);
+        tft.drawString("MAX " + formatTemperatureLabel(maxTemp), 18, 116, 2);
         tft.setTextColor(TFT_TEXT_COLOR, panel);
-        tft.drawString(relayState ? "RELAY ON" : "RELAY OFF", 150, 92, 2);
+        tft.drawString(relayState ? "RELAY ON" : "RELAY OFF", 150, 80, 2);
         if (gyroHold.switchPulseUs == 0) {
-            tft.drawString("CH8 BRAK", 150, 110, 2);
+            tft.drawString("CH8 BRAK", 150, 98, 2);
         } else {
-            tft.drawString("CH8 " + String(gyroHold.switchPulseUs) + "us", 150, 110, 2);
+            tft.drawString("CH8 " + String(gyroHold.switchPulseUs) + "us", 150, 98, 2);
         }
         if (gyroSteerPulseUs == 0) {
-            tft.drawString("CH1 BRAK", 150, 128, 2);
+            tft.drawString("CH1 BRAK", 150, 116, 2);
         } else {
-            tft.drawString("CH1 " + String(gyroSteerPulseUs) + "us", 150, 128, 2);
-        }
-        tft.setTextColor(thermalShutdownActive ? TFT_ALERT_COLOR : TFT_OK_COLOR, panel);
-        if (thermalShutdownActive && thermalShutdownSensorIndex >= 0) {
-            tft.drawString(String("HOT ") + TEMP_SENSORS[thermalShutdownSensorIndex].label, 188, 74, 2);
-        } else {
-            tft.drawString("OK", 236, 74, 2);
+            tft.drawString("CH1 " + String(gyroSteerPulseUs) + "us", 150, 116, 2);
         }
         for (uint8_t i = 0; i < TEMP_SENSOR_COUNT; i++) {
             lastTempDeciC[i] = tempDeciC[i];
