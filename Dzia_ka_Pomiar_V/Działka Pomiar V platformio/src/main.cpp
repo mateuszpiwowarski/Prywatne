@@ -98,7 +98,7 @@ void setup() {
   auto *lightRelay = new Supla::Control::Relay(RELAY2_PIN, RELAY_ACTIVE_HIGH);
 
   alarmRelay->setInitialCaption("Przekaznik alarm");
-  lightRelay->setInitialCaption("Przekaznik swiatlo");
+  lightRelay->setInitialCaption("Przekaznik ladowanie");
 
   batteryVoltage = new Supla::Sensor::GeneralPurposeMeasurement();
   batteryVoltage->setInitialCaption("Napiecie akumulatora");
