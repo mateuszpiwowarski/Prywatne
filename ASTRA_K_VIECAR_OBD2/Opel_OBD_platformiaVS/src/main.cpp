@@ -175,9 +175,6 @@ static inline void tftLock();
 static inline void tftUnlock();
 static inline void bleLock();
 static inline void bleUnlock();
-static inline bool isPollingTaskContext();
-static inline bool obdPollingPaused(uint32_t now);
-static inline void requestObdPollingPause(uint32_t ms);
 static inline bool elmTransportReady();
 static bool isMacStringValid(const String& s);
 static void ensureGlobalNvsVersion();
@@ -242,7 +239,7 @@ static void uiDashUpdateDynamicLandscape(int sootPct, int kmSince, float vbatV, 
 static void uiDashDrawStaticPortrait();
 static void uiDashUpdateDynamicPortrait(int sootPct, int kmSince, float vbatV, float oilC, float ectC, const String& statusStr);
 static void uiBurnDrawStatic();
-static void uiBurnUpdateDynamic(int pctCenter, float oilC, float ectC, const String& stateStr, uint32_t now);
+static void uiBurnUpdateDynamic(int pctCenter, float, const String& stateStr, uint32_t);
 static void uiSuccessDrawStatic();
 static void uiAbortDrawStatic();
 static void setTestMode(bool on);
@@ -385,9 +382,6 @@ static bool g_logIO = false;
 static bool g_testMode = false;
 static uint32_t g_testStartMs = 0;
 static uint32_t g_pauseReconnectUntilMs = 0;
-static volatile bool g_consoleCommandActive = false;
-static volatile uint32_t g_pauseObdPollingUntilMs = 0;
-static TaskHandle_t g_task = nullptr;
 
 // ===================== LOG THROTTLE =====================
 static uint32_t g_lastMacNotSeenLogMs = 0;
@@ -406,26 +400,6 @@ static inline void tftUnlock() { if (g_tftMutex) xSemaphoreGive(g_tftMutex); }
 static SemaphoreHandle_t g_bleMutex = nullptr;
 static inline void bleLock()   { if (g_bleMutex) xSemaphoreTake(g_bleMutex, portMAX_DELAY); }
 static inline void bleUnlock() { if (g_bleMutex) xSemaphoreGive(g_bleMutex); }
-
-static const uint32_t ELM_MUTEX_WAIT_BG_MS = 25;
-static const uint32_t ELM_MUTEX_WAIT_FG_MS = 1500;
-static const uint32_t OBD_POLL_PAUSE_ON_CONSOLE_MS = 2500;
-
-static inline bool isPollingTaskContext() {
-  return (g_task && xTaskGetCurrentTaskHandle() == g_task);
-}
-
-static inline bool obdPollingPaused(uint32_t now) {
-  if (g_consoleCommandActive) return true;
-  return ((int32_t)(g_pauseObdPollingUntilMs - now) > 0);
-}
-
-static inline void requestObdPollingPause(uint32_t ms) {
-  uint32_t until = millis() + ms;
-  if ((int32_t)(until - g_pauseObdPollingUntilMs) > 0) {
-    g_pauseObdPollingUntilMs = until;
-  }
-}
 
 // ===================== ELM AUTO-RECOVER =====================
 static portMUX_TYPE g_elmStatMux = portMUX_INITIALIZER_UNLOCKED;
@@ -586,6 +560,8 @@ static String sLine;
 enum UiMode : uint8_t { UI_DASH = 0, UI_BURN = 1, UI_SUCCESS = 2, UI_ABORT = 3 };
 static UiMode g_mode = UI_DASH;
 
+static TaskHandle_t g_task = nullptr;
+
 // ===================== ROTATION =====================
 static uint8_t g_rotation = 1;
 
@@ -644,21 +620,6 @@ static const int D_PCT_TEXT_Y = 5;
 static bool  g_burnStaticDrawn = false;
 static int   g_burn_lastPct = -999;
 static String g_burn_lastTitle = "";
-static float g_burn_lastOil = TEMP_NODATA;
-static float g_burn_lastEct = TEMP_NODATA;
-static uint16_t g_burn_lastOilCol  = 0xFFFF;
-static uint16_t g_burn_lastEctCol  = 0xFFFF;
-static uint16_t g_burn_lastOilLabelCol  = 0xFFFF;
-static uint16_t g_burn_lastEctLabelCol  = 0xFFFF;
-static bool g_burn_lastOilBlinkOn = false;
-static bool g_burn_lastEctBlinkOn = false;
-static const float BURN_ECT_WARN_C   = 95.0f;
-static const float BURN_ECT_ALARM_C  = 100.0f;
-// Założenie praktyczne: przy regen olej 90..115 C bywa normalny,
-// 120+ C traktujemy jako gorąco, 130+ C jako alarm krytyczny.
-static const float BURN_OIL_WARN_C   = 120.0f;
-static const float BURN_OIL_ALARM_C  = 130.0f;
-static const uint32_t BURN_ALERT_BLINK_MS = 500;
 
 // ===================== REGEN SESSION (LATCH) =====================
 // ===================== REGEN SESSION (LATCH) =====================
@@ -1075,15 +1036,7 @@ static void sendCmdLocked(const char* sNoCR) {
 
 static bool sendELMAndWait(const char* s, String& out, uint32_t timeout_ms) {
   if (!g_elmMutex) return false;
-
-  TickType_t lockWait = pdMS_TO_TICKS(isPollingTaskContext() ? ELM_MUTEX_WAIT_BG_MS
-                                                             : ELM_MUTEX_WAIT_FG_MS);
-  if (xSemaphoreTake(g_elmMutex, lockWait) != pdTRUE) {
-    if (!isPollingTaskContext()) {
-      Serial.println("[ELM] busy");
-    }
-    return false;
-  }
+  xSemaphoreTake(g_elmMutex, portMAX_DELAY);
 
   portENTER_CRITICAL(&g_bufMux);
   rxClearLocked();
@@ -2065,45 +2018,15 @@ static void uiBurnDrawStatic() {
 
   tft.fillRect(W/2 - 90, 34, 180, 40, COL_BG);
 
-  const int oilCx  = W / 4;
-  const int ectCx  = (W * 3) / 4;
-  const int tempLabelY = 82;
-  const int tempValueY = 100;
-  const int tempBoxW = 112;
-  const int tempBoxH = 28;
-
-  tft.setTextDatum(TC_DATUM);
-  tft.setTextColor(COL_GREY, COL_BG);
-  tft.setTextFont(2);
-  tft.drawString("OIL", oilCx, tempLabelY);
-  tft.drawString("ECT", ectCx, tempLabelY);
-
-  tft.setTextColor(COL_TEXT, COL_BG);
-  tft.setTextFont(4);
-  tft.fillRect(oilCx - tempBoxW / 2, tempValueY - 14, tempBoxW, tempBoxH, COL_BG);
-  tft.fillRect(ectCx - tempBoxW / 2, tempValueY - 14, tempBoxW, tempBoxH, COL_BG);
-  tft.drawString("--°C", oilCx, tempValueY);
-  tft.drawString("--°C", ectCx, tempValueY);
-
   g_burn_lastPct = -999;
   g_burn_lastTitle = "";
-  g_burn_lastOil = TEMP_NODATA;
-  g_burn_lastEct = TEMP_NODATA;
-  g_burn_lastOilCol  = 0xFFFF;
-  g_burn_lastEctCol  = 0xFFFF;
-  g_burn_lastOilLabelCol  = 0xFFFF;
-  g_burn_lastEctLabelCol  = 0xFFFF;
-  g_burn_lastOilBlinkOn = false;
-  g_burn_lastEctBlinkOn = false;
   g_burnStaticDrawn = true;
 
   drawFrame(COL_RED);
 }
 
-static void uiBurnUpdateDynamic(int pctCenter, float oilC, float ectC, const String& stateStr, uint32_t now) {
+static void uiBurnUpdateDynamic(int pctCenter, float, const String& stateStr, uint32_t) {
   const int W = tft.width();
-  const int oilCx  = W / 4;
-  const int ectCx  = (W * 3) / 4;
 
   // --- TITLE (STATE) ---
   String title = stateStr;
@@ -2132,73 +2055,16 @@ static void uiBurnUpdateDynamic(int pctCenter, float oilC, float ectC, const Str
     tft.setTextColor(COL_TEXT, COL_BG);
     tft.setTextFont(6);
     tft.drawString(String(pct) + "%", W/2, 55);
-    
-    // Pasek odświeżaj tylko przy realnej zmianie procentu.
-    int bx = 16, by = 118, bw = W - 32, bh = 24;
-    tft.fillRoundRect(bx, by, bw, bh, bh/2, COL_BAR_BG);
-    int fillW = (bw * pct) / 100;
-    if (fillW > 0) tft.fillRoundRect(bx, by, fillW, bh, bh/2, COL_RED);
   }
 
-  auto drawMetricLabel = [&](int cx, const char* label, uint16_t col, uint16_t& lastCol) {
-    if (col == lastCol) return;
-    lastCol = col;
+  // --- BAR ---
+  int bx = 16, by = 118, bw = W - 32, bh = 24;
+  tft.fillRoundRect(bx, by, bw, bh, bh/2, COL_BAR_BG);
+  int fillW = (bw * pct) / 100;
+  if (fillW > 0) tft.fillRoundRect(bx, by, fillW, bh, bh/2, COL_RED);
 
-    const int tempLabelY = 82;
-    const int labelBoxW = 72;
-    const int labelBoxH = 16;
-
-    tft.fillRect(cx - labelBoxW / 2, tempLabelY - 8, labelBoxW, labelBoxH, COL_BG);
-    tft.setTextDatum(TC_DATUM);
-    tft.setTextColor(col, COL_BG);
-    tft.setTextFont(2);
-    tft.drawString(label, cx, tempLabelY);
-  };
-
-  auto drawMetric = [&](int cx, const String& text, uint16_t col) {
-    const int tempValueY = 100;
-    const int tempBoxW = 112;
-    const int tempBoxH = 28;
-
-    tft.fillRect(cx - tempBoxW / 2, tempValueY - 14, tempBoxW, tempBoxH, COL_BG);
-    tft.setTextDatum(TC_DATUM);
-    tft.setTextColor(col, COL_BG);
-    tft.setTextFont(4);
-    tft.drawString(text, cx, tempValueY);
-  };
-
-  auto drawTemp = [&](int cx, float tempC, float& lastTemp, uint16_t& lastCol, bool& lastBlinkOn,
-                      uint16_t& lastLabelCol, const char* label, float warnC, float alarmC) {
-    bool nowValid = tempValid(tempC);
-    bool blinkCritical = nowValid && tempC >= alarmC;
-    bool blinkOn = blinkCritical ? (((now / BURN_ALERT_BLINK_MS) & 1U) == 0U) : true;
-
-    uint16_t col = COL_TEXT;
-    if (nowValid && tempC >= alarmC)      col = blinkOn ? COL_RED : COL_WARM;
-    else if (nowValid && tempC >= warnC)  col = COL_WARM;
-    uint16_t labelCol = COL_GREY;
-    if (nowValid && tempC >= alarmC)      labelCol = COL_RED;
-    else if (nowValid && tempC >= warnC)  labelCol = COL_WARM;
-
-    drawMetricLabel(cx, label, labelCol, lastLabelCol);
-
-    bool oldValid = tempValid(lastTemp);
-    bool changed = (nowValid != oldValid) || (col != lastCol) || (blinkOn != lastBlinkOn);
-
-    if (!changed && nowValid) changed = (fabsf(tempC - lastTemp) >= 1.0f);
-    if (!changed) return;
-
-    lastTemp = tempC;
-    lastCol = col;
-    lastBlinkOn = blinkOn;
-
-    drawMetric(cx, nowValid ? (String((int)tempC) + "°C") : String("--°C"), col);
-  };
-
-  drawTemp(oilCx, oilC, g_burn_lastOil, g_burn_lastOilCol, g_burn_lastOilBlinkOn,
-           g_burn_lastOilLabelCol, "OIL", BURN_OIL_WARN_C, BURN_OIL_ALARM_C);
-  drawTemp(ectCx, ectC, g_burn_lastEct, g_burn_lastEctCol, g_burn_lastEctBlinkOn,
-           g_burn_lastEctLabelCol, "ECT", BURN_ECT_WARN_C, BURN_ECT_ALARM_C);
+  // ramka na wierzchu
+  drawFrame(COL_RED);
 }
 
 // ===================== UI: SUCCESS =====================
@@ -2944,7 +2810,6 @@ static void factoryResetProfile(bool keepMac) {
 static void handleConsoleLine(const String& lineIn) {
   String line = lineIn; line.trim();
   if (!line.length()) return;
-  requestObdPollingPause(OBD_POLL_PAUSE_ON_CONSOLE_MS);
 
   // Uproszczony parser: rozpoznawanie komend bez wielkości liter
   String lc = line;
@@ -3717,7 +3582,7 @@ static void taskLoop(void*) {
         if (!g_abortStaticDrawn) uiAbortDrawStatic();
       } else if (g_mode == UI_BURN) {
         if (!g_burnStaticDrawn) uiBurnDrawStatic();
-        uiBurnUpdateDynamic(soot, oil, ect, stateStr, now);
+        uiBurnUpdateDynamic(soot, ect, stateStr, now);
       } else {
         if (!g_dashStaticDrawn) uiDashDrawStatic();
         String st = burnReq ? "REQ" : stateStr;
@@ -3730,11 +3595,6 @@ static void taskLoop(void*) {
     }
 
     // ===================== NORMAL MODE (BLE/ELM) =====================
-    if (obdPollingPaused(now)) {
-      vTaskDelay(pdMS_TO_TICKS(20));
-      continue;
-    }
-
     if (!(g_client && g_client->isConnected() && g_charRX && g_charTX)) {
       if (now < g_pauseReconnectUntilMs) {
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -3805,9 +3665,7 @@ static void taskLoop(void*) {
 
       ByteBuf b;
       if (query22_bytes(g_did_soot, b, 900)) soot = sootPercentFrom_22336A(b);
-      if (obdPollingPaused(millis())) continue;
       if (query22_bytes(g_did_burn, b, 900)) burnReq = burnReqFrom_2220FA(b);
-      if (obdPollingPaused(millis())) continue;
 
       if (query22_bytes(g_did_state, b, 900) && b.n >= 4) {
         stateA = b.b[3];
@@ -3824,12 +3682,9 @@ static void taskLoop(void*) {
 
       uint16_t v16;
       if (query22_u16(g_did_km, v16, 900)) km = (int)v16;
-      if (obdPollingPaused(millis())) continue;
 
       queryVBAT(vbat);
-      if (obdPollingPaused(millis())) continue;
       queryOIL(oil);
-      if (obdPollingPaused(millis())) continue;
       queryECT(ect);
     }
 
@@ -3896,7 +3751,7 @@ if (!splashOn(now)) {
           if (!g_abortStaticDrawn) uiAbortDrawStatic();
         } else if (g_mode == UI_BURN) {
           if (!g_burnStaticDrawn) uiBurnDrawStatic();
-          uiBurnUpdateDynamic(soot, oil, ect, stateStr, now);
+          uiBurnUpdateDynamic(soot, ect, stateStr, now);
         } else {
           if (!g_dashStaticDrawn) uiDashDrawStatic();
           String st = burnReq ? "REQ" : stateStr;
@@ -3954,13 +3809,7 @@ void loop() {
   while (Serial.available()) {
     char c = (char)Serial.read();
     if (c == '\r' || c == '\n') {
-      if (sLine.length()) {
-        g_consoleCommandActive = true;
-        handleConsoleLine(sLine);
-        g_consoleCommandActive = false;
-        requestObdPollingPause(250);
-        sLine = "";
-      }
+      if (sLine.length()) { handleConsoleLine(sLine); sLine = ""; }
     } else {
       sLine += c;
       if (sLine.length() > 200) sLine.remove(0, 50);
